@@ -84,7 +84,17 @@ public sealed class PageText
     public required PdfAnnotation[] Annotations { get; init; }
     public required PageTransform Transform { get; init; }
 
+    /// <summary>
+    /// For each character index PDFium uses (as in search results), its index here, where characters
+    /// are in reading order. Null when the orders are the same.
+    /// </summary>
+    public int[]? SourceIndexMap { get; init; }
+
     public int Count => CodePoints.Length;
+
+    private TextLayout? _layout;
+    /// <summary>The characters grouped into lines, for hit testing and highlighting.</summary>
+    public TextLayout Layout => _layout ??= new TextLayout(this);
 
     public string GetText(int start, int end)
     {
