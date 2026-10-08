@@ -517,8 +517,9 @@ public sealed partial class MainWindow : Window
 
     private async Task<string?> AskPasswordAsync(string fileName, bool wrong)
     {
-        var box = new PasswordBox { PlaceholderText = "Password", Width = 320 };
-        var panel = new StackPanel { Spacing = 12 };
+        // Fixed width so a long file name wraps instead of widening the dialog past the password box.
+        var box = new PasswordBox { PlaceholderText = "Password" };
+        var panel = new StackPanel { Spacing = 12, Width = 360 };
         panel.Children.Add(new TextBlock { Text = $"“{fileName}” is protected. Enter the password to open it.", TextWrapping = TextWrapping.Wrap });
         panel.Children.Add(box);
         if (wrong)
