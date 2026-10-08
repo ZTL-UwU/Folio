@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8"?>
+﻿<?xml version="1.0" encoding="utf-8" ?>
 <Application
     x:Class="Folio.App"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
@@ -10,7 +10,10 @@
             </ResourceDictionary.MergedDictionaries>
 
             <!--  Borderless icon buttons for the title bar and panel headers  -->
-            <Style x:Key="ToolbarButtonStyle" BasedOn="{StaticResource DefaultButtonStyle}" TargetType="Button">
+            <Style
+                x:Key="ToolbarButtonStyle"
+                BasedOn="{StaticResource DefaultButtonStyle}"
+                TargetType="Button">
                 <Setter Property="Background" Value="Transparent" />
                 <Setter Property="BorderThickness" Value="0" />
                 <Setter Property="Padding" Value="0" />
@@ -20,12 +23,18 @@
             </Style>
 
             <!--  Smaller variant that fits the standard 32px title bar  -->
-            <Style x:Key="TitleBarButtonStyle" BasedOn="{StaticResource ToolbarButtonStyle}" TargetType="Button">
+            <Style
+                x:Key="TitleBarButtonStyle"
+                BasedOn="{StaticResource ToolbarButtonStyle}"
+                TargetType="Button">
                 <Setter Property="Width" Value="34" />
                 <Setter Property="Height" Value="28" />
             </Style>
 
-            <Style x:Key="ToolbarToggleStyle" BasedOn="{StaticResource DefaultToggleButtonStyle}" TargetType="ToggleButton">
+            <Style
+                x:Key="ToolbarToggleStyle"
+                BasedOn="{StaticResource DefaultToggleButtonStyle}"
+                TargetType="ToggleButton">
                 <Setter Property="Background" Value="Transparent" />
                 <Setter Property="BorderThickness" Value="0" />
                 <Setter Property="Padding" Value="0" />
@@ -34,7 +43,10 @@
                 <Setter Property="VerticalAlignment" Value="Center" />
             </Style>
 
-            <Style x:Key="SubtleButtonStyle" BasedOn="{StaticResource DefaultButtonStyle}" TargetType="Button">
+            <Style
+                x:Key="SubtleButtonStyle"
+                BasedOn="{StaticResource DefaultButtonStyle}"
+                TargetType="Button">
                 <Setter Property="Background" Value="Transparent" />
                 <Setter Property="BorderThickness" Value="0" />
             </Style>
@@ -43,15 +55,24 @@
                 For elements built in code. Brushes looked up in Application.Current.Resources follow the
                 system theme, not the one chosen in Settings; theme resources in a style follow the element.
             -->
-            <Style x:Key="SecondaryTextBlockStyle" BasedOn="{StaticResource BodyTextBlockStyle}" TargetType="TextBlock">
+            <Style
+                x:Key="SecondaryTextBlockStyle"
+                BasedOn="{StaticResource BodyTextBlockStyle}"
+                TargetType="TextBlock">
                 <Setter Property="Foreground" Value="{ThemeResource TextFillColorSecondaryBrush}" />
             </Style>
 
-            <Style x:Key="SecondaryCaptionTextBlockStyle" BasedOn="{StaticResource CaptionTextBlockStyle}" TargetType="TextBlock">
+            <Style
+                x:Key="SecondaryCaptionTextBlockStyle"
+                BasedOn="{StaticResource CaptionTextBlockStyle}"
+                TargetType="TextBlock">
                 <Setter Property="Foreground" Value="{ThemeResource TextFillColorSecondaryBrush}" />
             </Style>
 
-            <Style x:Key="CriticalTextBlockStyle" BasedOn="{StaticResource BodyTextBlockStyle}" TargetType="TextBlock">
+            <Style
+                x:Key="CriticalTextBlockStyle"
+                BasedOn="{StaticResource BodyTextBlockStyle}"
+                TargetType="TextBlock">
                 <Setter Property="Foreground" Value="{ThemeResource SystemFillColorCriticalBrush}" />
             </Style>
 
