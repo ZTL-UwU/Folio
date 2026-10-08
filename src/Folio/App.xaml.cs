@@ -63,6 +63,12 @@ public partial class App : Application
         foreach (var window in OpenWindows) window.ApplyTheme();
     }
 
+    /// <summary>Applies the page corner style chosen in Settings to every open window.</summary>
+    internal static void ApplyPageCorners()
+    {
+        foreach (var window in OpenWindows) window.ApplyPageCorners();
+    }
+
     private static void LogError(Exception exception)
     {
         try

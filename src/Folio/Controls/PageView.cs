@@ -3,6 +3,7 @@ using System.Numerics;
 using System.Runtime.InteropServices.WindowsRuntime;
 using System.Text;
 using Folio.Pdf;
+using Folio.Services;
 using Microsoft.UI;
 using Microsoft.UI.Composition;
 using Microsoft.UI.Xaml;
@@ -103,15 +104,19 @@ internal sealed class PageView : Canvas
         // Whole device pixels, so the clip lines up with the pixel-snapped bitmap instead of cutting into its last row.
         var size = new Vector2((float)(Math.Round(Width * pixel) / pixel), (float)(Math.Round(Height * pixel) / pixel));
         float hairline = (float)(Math.Max(1, Math.Round(raster)) / pixel);
-        float radius = (float)(FrameRadius * raster / pixel);
+        bool rounded = AppState.Preferences.RoundedPageCorners;
+        float radius = rounded ? (float)(FrameRadius * raster / pixel) : 0;
         _clipGeometry.Size = size;
         _clipGeometry.CornerRadius = new Vector2(radius);
         _outline.Offset = new Vector3(-hairline, -hairline, 0);
         _outline.Size = size + new Vector2(2 * hairline);
         _outlineGeometry.Size = _outline.Size;
-        _outlineGeometry.CornerRadius = new Vector2(radius + hairline);
+        _outlineGeometry.CornerRadius = new Vector2(rounded ? radius + hairline : 0);
         _outlineBrush.Color = ActualTheme == ElementTheme.Dark ? StrokeDark : StrokeLight;
     }
+
+    /// <summary>Reapplies the frame after the page corner preference changes.</summary>
+    public void RefreshFrame() => UpdateFrame();
 
     public void SetPaperColor(Windows.UI.Color color) => ((SolidColorBrush)_paper.Background).Color = color;
 

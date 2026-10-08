@@ -158,6 +158,9 @@ public sealed partial class MainWindow : Window
         };
     }
 
+    /// <summary>Applies the page corner style chosen in Settings.</summary>
+    internal void ApplyPageCorners() => Viewer.RefreshPageFrames();
+
     private double GetDpiScale()
     {
         var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(this);

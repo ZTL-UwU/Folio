@@ -252,6 +252,12 @@ public sealed partial class DocumentView : UserControl
         ViewSettingsChanged?.Invoke(this, EventArgs.Empty);
     }
 
+    /// <summary>Applies the page corner preference to the pages on screen.</summary>
+    public void RefreshPageFrames()
+    {
+        foreach (var view in _views.Values) view.RefreshFrame();
+    }
+
     public void Rotate(int delta)
     {
         _rotation = ((_rotation + delta) % 360 + 360) % 360;

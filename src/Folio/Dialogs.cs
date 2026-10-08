@@ -221,12 +221,23 @@ internal static class Dialogs
             dialog.RequestedTheme = ((FrameworkElement)root.Content).RequestedTheme;
         };
 
+        var corners = new ToggleSwitch { IsOn = prefs.RoundedPageCorners, OnContent = "", OffContent = "", MinWidth = 0, VerticalAlignment = VerticalAlignment.Center };
+        AutomationProperties.SetName(corners, "Rounded page corners");
+        corners.Toggled += (_, _) =>
+        {
+            prefs.RoundedPageCorners = corners.IsOn;
+            AppState.Save();
+            App.ApplyPageCorners();
+        };
+
         var recent = new ToggleSwitch { IsOn = prefs.RememberRecent, OnContent = "", OffContent = "", MinWidth = 0, VerticalAlignment = VerticalAlignment.Center };
         AutomationProperties.SetName(recent, "Remember recent documents");
         recent.Toggled += (_, _) => AppState.SetRememberRecent(recent.IsOn);
 
         var panel = new StackPanel { Spacing = 16, Width = 440 };
-        panel.Children.Add(SettingsSection("Appearance", SettingRow("Theme", "Use light or dark colors, or follow Windows.", theme)));
+        panel.Children.Add(SettingsSection("Appearance",
+            SettingRow("Theme", "Use light or dark colors, or follow Windows.", theme),
+            SettingRow("Rounded page corners", "Round the corners of pages in the viewer.", corners)));
         panel.Children.Add(SettingsSection("History", SettingRow("Remember recent documents",
             "List opened documents on the start page and reopen them where you left off.", recent)));
 
@@ -237,11 +248,13 @@ internal static class Dialogs
         await dialog.ShowAsync();
     }
 
-    private static FrameworkElement SettingsSection(string title, FrameworkElement row)
+    private static FrameworkElement SettingsSection(string title, params FrameworkElement[] rows)
     {
-        var stack = new StackPanel { Spacing = 8 };
-        stack.Children.Add(new TextBlock { Text = title, Style = AppStyle("BodyStrongTextBlockStyle") });
-        stack.Children.Add(new Border { Style = AppStyle("CardBorderStyle"), Padding = new Thickness(16, 12, 16, 12), Child = row });
+        // One card per row, a little apart, like Windows Settings.
+        var stack = new StackPanel { Spacing = 4 };
+        stack.Children.Add(new TextBlock { Text = title, Style = AppStyle("BodyStrongTextBlockStyle"), Margin = new Thickness(0, 0, 0, 4) });
+        foreach (var row in rows)
+            stack.Children.Add(new Border { Style = AppStyle("CardBorderStyle"), Padding = new Thickness(16, 12, 16, 12), Child = row });
         return stack;
     }
 
