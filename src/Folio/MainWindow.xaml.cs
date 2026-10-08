@@ -248,7 +248,13 @@ public sealed partial class MainWindow : Window
     {
         if (AppWindow.Presenter is OverlappedPresenter { State: OverlappedPresenterState.Minimized } presenter) presenter.Restore();
         Activate();
+        // Activate doesn't raise a window that's already open behind others. The launch that
+        // forwarded the file allowed us to take the foreground, so do it explicitly.
+        SetForegroundWindow(WinRT.Interop.WindowNative.GetWindowHandle(this));
     }
+
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    private static extern bool SetForegroundWindow(IntPtr hwnd);
 
     internal void ReportUnexpectedError()
     {
