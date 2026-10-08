@@ -59,6 +59,9 @@ public sealed partial class MainWindow : Window
     private bool _forceClose;
     private bool _hasOutline;
     private bool _hasAttachments;
+    private bool _settingsOpen;
+    /// <summary>The file changed on disk while Settings was open; checked again when it closes.</summary>
+    private bool _reloadAfterSettings;
 
     public MainWindow()
     {
@@ -126,6 +129,14 @@ public sealed partial class MainWindow : Window
         {
             SearchBox.Text = text;
             StartSearch(text);
+        };
+
+        // The mouse back button leaves Settings, as in other apps.
+        SettingsView.PointerPressed += (_, e) =>
+        {
+            if (!e.GetCurrentPoint(SettingsView).Properties.IsXButton1Pressed) return;
+            CloseSettings();
+            e.Handled = true;
         };
 
         Root.Loaded += (_, _) => _loaded.TrySetResult();
@@ -272,8 +283,9 @@ public sealed partial class MainWindow : Window
         if (remember && encrypted) AppState.DeleteThumbnail(document.FilePath);
         if (remember) AppState.Touch(_entry);
 
-        StartView.Visibility = Visibility.Collapsed;
-        DocumentLayout.Visibility = Visibility.Visible;
+        _settingsOpen = false;
+        _reloadAfterSettings = false;
+        ShowCurrentView();
         // Size the sidebar for this document's thumbnails before the viewer lays out, so its
         // viewport (and the fit-width zoom the first pages render at) doesn't change afterwards.
         _thumbnailRotation = existing?.Rotation ?? 0;
@@ -326,8 +338,7 @@ public sealed partial class MainWindow : Window
         OutlineTree.RootNodes.Clear();
         AttachmentList.ItemsSource = null;
         _annotationItems.Clear();
-        DocumentLayout.Visibility = Visibility.Collapsed;
-        StartView.Visibility = Visibility.Visible;
+        ShowCurrentView();
         UpdateChrome();
         UpdateTitle();
         RefreshRecent();
@@ -398,6 +409,12 @@ public sealed partial class MainWindow : Window
     private void OnFileChangedOnDisk()
     {
         if (_document is null || DateTime.UtcNow < _ignoreWatcherUntil || !File.Exists(_document.FilePath)) return;
+        // The viewer is hidden behind Settings and has no size to lay out a reloaded document in.
+        if (_settingsOpen)
+        {
+            _reloadAfterSettings = true;
+            return;
+        }
         if (!_document.IsModified && !Viewer.HasPendingEdits)
         {
             _ = ReloadAsync();
@@ -535,11 +552,13 @@ public sealed partial class MainWindow : Window
 
     private void UpdateChrome()
     {
-        bool hasDoc = _document is not null;
-        var visibility = hasDoc ? Visibility.Visible : Visibility.Collapsed;
+        bool showingDocument = _document is not null && !_settingsOpen;
+        bool searching = SearchPanel.Visibility == Visibility.Visible;
+        var visibility = showingDocument ? Visibility.Visible : Visibility.Collapsed;
         ZoomControls.Visibility = visibility;
         HeaderSeparator.Visibility = visibility;
-        AppTitleBar.IsPaneToggleButtonVisible = hasDoc && SearchPanel.Visibility != Visibility.Visible;
+        AppTitleBar.IsPaneToggleButtonVisible = showingDocument && !searching;
+        AppTitleBar.IsBackButtonVisible = _settingsOpen || showingDocument && searching;
         foreach (var item in new MenuFlyoutItemBase[]
                  {
                      DocumentSeparator, SaveItem, SaveAsItem, PrintItem, ViewSeparator, ContinuousItem, DualItem, OddLeftItem,
@@ -637,9 +656,14 @@ public sealed partial class MainWindow : Window
 
     private void OnPaneToggleRequested(TitleBar sender, object args) => SetSidebarOpen(!_sidebarOpen);
 
-    // While searching, the pane toggle becomes a back button that leaves search.
+    // In Settings, and while searching, the pane toggle becomes a back button that leaves them.
     private void OnTitleBarBackRequested(TitleBar sender, object args)
     {
+        if (_settingsOpen)
+        {
+            CloseSettings();
+            return;
+        }
         CancelSearch(clearText: true);
         Viewer.Focus(FocusState.Programmatic);
     }
@@ -1351,9 +1375,47 @@ public sealed partial class MainWindow : Window
         await Dialogs.ShowPropertiesAsync(Root.XamlRoot, _document);
     }
 
-    private async void OnSettings(object sender, RoutedEventArgs e) => await Dialogs.ShowSettingsAsync(Root.XamlRoot);
+    private void OnSettings(object sender, RoutedEventArgs e) => ShowSettings();
     private async void OnShortcuts(object sender, RoutedEventArgs e) => await Dialogs.ShowShortcutsAsync(Root.XamlRoot);
     private async void OnAbout(object sender, RoutedEventArgs e) => await Dialogs.ShowAboutAsync(Root.XamlRoot);
+
+    // ================================================================ settings
+
+    private void ShowSettings()
+    {
+        if (_settingsOpen) return;
+        if (_presenting) SetPresenting(false);
+        if (_fullscreen) SetFullscreen(false);
+        Viewer.StopMiddleScroll();
+        _settingsOpen = true;
+        SettingsView.Refresh();
+        ShowCurrentView();
+        UpdateChrome();
+        SettingsView.UpdateLayout();
+        if (FocusManager.FindFirstFocusableElement(SettingsView) is Control first) first.Focus(FocusState.Programmatic);
+    }
+
+    private void CloseSettings()
+    {
+        if (!_settingsOpen) return;
+        _settingsOpen = false;
+        ShowCurrentView();
+        UpdateChrome();
+        if (_document is not null) Viewer.Focus(FocusState.Programmatic);
+        if (_reloadAfterSettings)
+        {
+            _reloadAfterSettings = false;
+            OnFileChangedOnDisk();
+        }
+    }
+
+    /// <summary>Shows Settings if it's open, otherwise the document or the start page.</summary>
+    private void ShowCurrentView()
+    {
+        SettingsView.Visibility = _settingsOpen ? Visibility.Visible : Visibility.Collapsed;
+        StartView.Visibility = !_settingsOpen && _document is null ? Visibility.Visible : Visibility.Collapsed;
+        DocumentLayout.Visibility = !_settingsOpen && _document is not null ? Visibility.Visible : Visibility.Collapsed;
+    }
 
     // ================================================================ full screen & presentation
 
@@ -1567,9 +1629,11 @@ public sealed partial class MainWindow : Window
         Add((VirtualKey)188, Ctrl, () => OnSettings(this, new RoutedEventArgs()), true);
         Add(VirtualKey.Escape, None, () =>
         {
-            if (_presenting) SetPresenting(false);
+            if (_settingsOpen) CloseSettings();
+            else if (_presenting) SetPresenting(false);
             else if (_fullscreen) SetFullscreen(false);
-        }, false, () => _presenting || _fullscreen);
+        }, false, () => _settingsOpen || _presenting || _fullscreen);
+        Add(VirtualKey.Left, VirtualKeyModifiers.Menu, CloseSettings, true, () => _settingsOpen);
 
         void Add(VirtualKey key, VirtualKeyModifiers modifiers, Action action, bool inTextBoxes, Func<bool>? canExecute = null)
         {
@@ -1578,7 +1642,9 @@ public sealed partial class MainWindow : Window
             {
                 if (canExecute?.Invoke() == false) return;
                 if (!inTextBoxes && Root.XamlRoot is not null && FocusManager.GetFocusedElement(Root.XamlRoot) is TextBox or PasswordBox or AutoSuggestBox) return;
-                if (_document is null && !WorksWithoutDocument(key)) return;
+                // In Settings the document is out of sight, so only what works without one applies; an
+                // accelerator with its own condition decides for itself.
+                if ((_document is null || _settingsOpen) && canExecute is null && !WorksWithoutDocument(key)) return;
                 args.Handled = true;
                 action();
             };
