@@ -868,6 +868,12 @@
                 Background="Transparent" />
         </Grid>
 
+        <!--  Settings, in place of the start page or document  -->
+        <local:SettingsPage
+            x:Name="SettingsView"
+            Grid.Row="1"
+            Visibility="Collapsed" />
+
         <!--  Transient notifications  -->
         <InfoBar
             x:Name="Notification"

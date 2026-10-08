@@ -1,7 +1,6 @@
 using Folio.Pdf;
 using Folio.Services;
 using Microsoft.UI.Xaml;
-using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media.Imaging;
 
@@ -199,76 +198,5 @@ internal static class Dialogs
         dialog.CloseButtonText = "Close";
         dialog.DefaultButton = ContentDialogButton.Close;
         await dialog.ShowAsync();
-    }
-
-    public static async Task ShowSettingsAsync(XamlRoot root)
-    {
-        var prefs = AppState.Preferences;
-        var dialog = Create(root);
-
-        var theme = new ComboBox { MinWidth = 140, VerticalAlignment = VerticalAlignment.Center };
-        AutomationProperties.SetName(theme, "Theme");
-        // In the order of AppTheme.
-        foreach (var name in new[] { "System", "Light", "Dark" }) theme.Items.Add(name);
-        theme.SelectedIndex = (int)prefs.Theme;
-        theme.SelectionChanged += (_, _) =>
-        {
-            if (theme.SelectedIndex < 0) return;
-            prefs.Theme = (AppTheme)theme.SelectedIndex;
-            AppState.Save();
-            App.ApplyTheme();
-            // That restyles the windows, but the dialog sits above the window's content.
-            dialog.RequestedTheme = ((FrameworkElement)root.Content).RequestedTheme;
-        };
-
-        var corners = new ToggleSwitch { IsOn = prefs.RoundedPageCorners, OnContent = "", OffContent = "", MinWidth = 0, VerticalAlignment = VerticalAlignment.Center };
-        AutomationProperties.SetName(corners, "Rounded page corners");
-        corners.Toggled += (_, _) =>
-        {
-            prefs.RoundedPageCorners = corners.IsOn;
-            AppState.Save();
-            App.ApplyPageCorners();
-        };
-
-        var recent = new ToggleSwitch { IsOn = prefs.RememberRecent, OnContent = "", OffContent = "", MinWidth = 0, VerticalAlignment = VerticalAlignment.Center };
-        AutomationProperties.SetName(recent, "Remember recent documents");
-        recent.Toggled += (_, _) => AppState.SetRememberRecent(recent.IsOn);
-
-        var panel = new StackPanel { Spacing = 16, Width = 440 };
-        panel.Children.Add(SettingsSection("Appearance",
-            SettingRow("Theme", "Use light or dark colors, or follow Windows.", theme),
-            SettingRow("Rounded page corners", "Round the corners of pages in the viewer.", corners)));
-        panel.Children.Add(SettingsSection("History", SettingRow("Remember recent documents",
-            "List opened documents on the start page and reopen them where you left off.", recent)));
-
-        dialog.Title = "Settings";
-        dialog.Content = panel;
-        dialog.CloseButtonText = "Close";
-        dialog.DefaultButton = ContentDialogButton.Close;
-        await dialog.ShowAsync();
-    }
-
-    private static FrameworkElement SettingsSection(string title, params FrameworkElement[] rows)
-    {
-        // One card per row, a little apart, like Windows Settings.
-        var stack = new StackPanel { Spacing = 4 };
-        stack.Children.Add(new TextBlock { Text = title, Style = AppStyle("BodyStrongTextBlockStyle"), Margin = new Thickness(0, 0, 0, 4) });
-        foreach (var row in rows)
-            stack.Children.Add(new Border { Style = AppStyle("CardBorderStyle"), Padding = new Thickness(16, 12, 16, 12), Child = row });
-        return stack;
-    }
-
-    private static FrameworkElement SettingRow(string title, string description, FrameworkElement control)
-    {
-        var grid = new Grid { ColumnSpacing = 16 };
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        var text = new StackPanel { Spacing = 2, VerticalAlignment = VerticalAlignment.Center };
-        text.Children.Add(new TextBlock { Text = title });
-        text.Children.Add(new TextBlock { Text = description, Style = AppStyle("SecondaryCaptionTextBlockStyle"), TextWrapping = TextWrapping.Wrap });
-        Grid.SetColumn(control, 1);
-        grid.Children.Add(text);
-        grid.Children.Add(control);
-        return grid;
     }
 }
