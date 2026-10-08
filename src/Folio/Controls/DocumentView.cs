@@ -69,6 +69,8 @@ public sealed partial class DocumentView : UserControl
     private bool _dragging;
     private Point _pressPoint;
     private PdfLink? _pressedLink;
+    /// <summary>Where a selection starts if the press on <see cref="_pressedLink"/> turns into a drag.</summary>
+    private TextPosition? _linkDragAnchor;
     private InputSystemCursorShape _cursor = InputSystemCursorShape.Arrow;
 
     // Middle-click scrolling: the view scrolls towards the pointer, faster the further it is from
@@ -132,7 +134,7 @@ public sealed partial class DocumentView : UserControl
         _host.PointerPressed += OnPointerPressed;
         _host.PointerMoved += OnPointerMoved;
         _host.PointerReleased += OnPointerReleased;
-        _host.PointerCaptureLost += (_, _) => { _pointerDown = false; _dragging = false; };
+        _host.PointerCaptureLost += (_, _) => { _pointerDown = false; _dragging = false; StopAutoScroll(); };
         _host.PointerExited += (_, _) => { if (!_pointerDown && !_middleScroll) { SetStatus(null); SetCursor(InputSystemCursorShape.Arrow); } };
         _host.RightTapped += OnRightTapped;
         AddHandler(PreviewKeyDownEvent, new KeyEventHandler(OnPreviewKeyDown), true);
@@ -141,8 +143,8 @@ public sealed partial class DocumentView : UserControl
         AddHandler(PointerMovedEvent, new PointerEventHandler(OnMiddleScrollPointerMoved), true);
         AddHandler(PointerReleasedEvent, new PointerEventHandler(OnMiddleScrollPointerReleased), true);
         PointerCaptureLost += (_, _) => { if (_middleScrollHeld) StopMiddleScroll(); };
-        LostFocus += (_, _) => StopMiddleScroll();
-        Unloaded += (_, _) => StopMiddleScroll();
+        LostFocus += (_, _) => { StopMiddleScroll(); StopAutoScroll(); };
+        Unloaded += (_, _) => { StopMiddleScroll(); StopAutoScroll(); };
 
         Loaded += (_, _) =>
         {
@@ -180,6 +182,7 @@ public sealed partial class DocumentView : UserControl
     public void SetDocument(PdfDocument? document, RecentDocument? restore = null)
     {
         StopMiddleScroll();
+        StopAutoScroll();
         _noteEdits.Clear();
         foreach (var view in _views.Values) view.Release();
         _views.Clear();
@@ -399,6 +402,7 @@ public sealed partial class DocumentView : UserControl
     {
         if (_presentation == value || _document is null) return;
         StopMiddleScroll();
+        StopAutoScroll();
         int page = _currentPage;
         if (value)
         {
@@ -474,7 +478,7 @@ public sealed partial class DocumentView : UserControl
         if (previous is not null) UpdateOverlay(previous.PageIndex);
         var text = await GetTextAsync(hit.PageIndex);
         if (text is null || _currentHit != hit) return;
-        var bounds = Union(HitRects(text, hit.CharIndex, hit.CharIndex + hit.Length));
+        var bounds = Union(text.Layout.SourceRangeRects(hit.CharIndex, hit.CharIndex + hit.Length));
         EnsurePageVisible(hit.PageIndex, bounds);
         UpdateOverlay(hit.PageIndex);
     }
@@ -653,6 +657,7 @@ public sealed partial class DocumentView : UserControl
     private void OnViewportSizeChanged()
     {
         StopMiddleScroll();
+        StopAutoScroll();
         if (_zoomMode != ZoomMode.Custom) ApplyZoomMode();
         UpdateRealization(true);
     }
@@ -699,7 +704,10 @@ public sealed partial class DocumentView : UserControl
         }
         if (Math.Abs(zoom - _lastZoom) > 0.0001)
         {
+            // Both track scroll offsets in pixels of the old zoom. A selection drag goes on; its next
+            // move starts auto-scrolling again from the new offsets.
             StopMiddleScroll();
+            StopAutoScroll();
             _lastZoom = zoom;
             ZoomChanged?.Invoke(this, EventArgs.Empty);
         }
@@ -920,7 +928,7 @@ public sealed partial class DocumentView : UserControl
                 foreach (var hit in hits)
                 {
                     var brush = _currentHit is { } c && c.PageIndex == hit.PageIndex && c.CharIndex == hit.CharIndex ? _currentSearchBrush : _searchBrush;
-                    foreach (var r in HitRects(text, hit.CharIndex, hit.CharIndex + hit.Length)) shapes.Add((Inflate(r, 1), brush));
+                    foreach (var r in text.Layout.SourceRangeRects(hit.CharIndex, hit.CharIndex + hit.Length)) shapes.Add((Inflate(r, 1), brush));
                 }
             }
             if (GetSelection() is { } sel && index >= sel.Start.Page && index <= sel.End.Page)
@@ -943,31 +951,7 @@ public sealed partial class DocumentView : UserControl
     }
 
     /// <summary>Merges character boxes in [start, end) into one rectangle per line.</summary>
-    private static List<Rect> HitRects(PageText text, int start, int end)
-    {
-        var result = new List<Rect>();
-        Rect current = Rect.Empty;
-        for (int i = Math.Max(0, start); i < Math.Min(end, text.Count); i++)
-        {
-            var box = text.Boxes[i];
-            if (box.IsEmpty) continue;
-            if (current.IsEmpty)
-            {
-                current = box;
-                continue;
-            }
-            double overlap = Math.Min(current.Bottom, box.Bottom) - Math.Max(current.Top, box.Top);
-            bool sameLine = overlap > Math.Min(current.Height, box.Height) * 0.5 && box.Left >= current.Left - 2;
-            if (sameLine) current = RectHelper.Union(current, box);
-            else
-            {
-                result.Add(current);
-                current = box;
-            }
-        }
-        if (!current.IsEmpty) result.Add(current);
-        return result;
-    }
+    private static List<Rect> HitRects(PageText text, int start, int end) => text.Layout.RangeRects(start, end);
 
     // ---------------------------------------------------------------- selection & pointer
 
@@ -1057,37 +1041,18 @@ public sealed partial class DocumentView : UserControl
         return (best, _views[best].FromView(new Point(clamped.X - rect.X, clamped.Y - rect.Y)));
     }
 
-    private static int CharAt(PageText text, Point p, double tolerance = 0)
+    /// <summary>
+    /// Where a selection drag at a content point ends. Past the top or bottom of a page that's the
+    /// start or end of the page, so dragging into the gap between pages takes the rest of the page.
+    /// <c>Display</c> is null then.
+    /// </summary>
+    private (TextPosition Position, PageText Text, Point? Display)? DragTarget(Point content)
     {
-        for (int i = 0; i < text.Count; i++)
-        {
-            var b = text.Boxes[i];
-            if (b.IsEmpty) continue;
-            if (p.X >= b.Left - tolerance && p.X <= b.Right + tolerance && p.Y >= b.Top - tolerance && p.Y <= b.Bottom + tolerance) return i;
-        }
-        return -1;
-    }
-
-    private static int CaretAt(PageText text, Point p)
-    {
-        int index = CharAt(text, p);
-        if (index < 0)
-        {
-            // Nearest character, weighting vertical distance so we stay on the same line.
-            double best = double.MaxValue;
-            for (int i = 0; i < text.Count; i++)
-            {
-                var b = text.Boxes[i];
-                if (b.IsEmpty) continue;
-                double dx = Math.Max(0, Math.Max(b.Left - p.X, p.X - b.Right));
-                double dy = Math.Max(0, Math.Max(b.Top - p.Y, p.Y - b.Bottom));
-                double d = dx + dy * 4;
-                if (d < best) { best = d; index = i; }
-            }
-            if (index < 0) return 0;
-        }
-        var box = text.Boxes[index];
-        return p.X > box.Left + box.Width / 2 ? index + 1 : index;
+        if (HitPageNearest(content) is not { } hit || !_texts.TryGetValue(hit.Page, out var text)) return null;
+        var rect = _pageRects[hit.Page];
+        if (content.Y < rect.Top) return (new TextPosition(hit.Page, 0), text, null);
+        if (content.Y > rect.Bottom) return (new TextPosition(hit.Page, text.Count), text, null);
+        return (new TextPosition(hit.Page, text.Layout.CaretAt(hit.Display)), text, hit.Display);
     }
 
     private PdfLink? LinkAt(int page, Point display)
@@ -1145,24 +1110,27 @@ public sealed partial class DocumentView : UserControl
         _pointerDown = true;
         _dragging = false;
         _pressedLink = null;
-        if (HitPage(point.Position) is { } hit)
+        _linkDragAnchor = null;
+        // A press anywhere starts a new selection (or extends the current one with Shift), so a
+        // drag never carries on from an old selection. On a link that waits until the press turns
+        // into a drag, which selects the text under it; a click follows the link and leaves the
+        // selection alone.
+        bool extend = (e.KeyModifiers & VirtualKeyModifiers.Shift) != 0 && _selectionAnchor is not null;
+        var hit = HitPage(point.Position);
+        if (hit is { } h) _pressedLink = LinkAt(h.Page, h.Display);
+        var target = hit is null ? null : DragTarget(point.Position);
+        if (extend)
         {
-            _pressedLink = LinkAt(hit.Page, hit.Display);
-            if (_pressedLink is null && _texts.TryGetValue(hit.Page, out var text))
-            {
-                bool extend = (e.KeyModifiers & VirtualKeyModifiers.Shift) != 0 && _selectionAnchor is not null;
-                var pos = new TextPosition(hit.Page, CaretAt(text, hit.Display));
-                if (extend) SetSelectionFocus(pos);
-                else
-                {
-                    ClearSelection();
-                    _selectionAnchor = pos;
-                }
-            }
+            if (target is { } t && _pressedLink is null) SetSelectionFocus(t.Position);
+        }
+        else if (_pressedLink is not null)
+        {
+            _linkDragAnchor = target?.Position;
         }
         else
         {
             ClearSelection();
+            if (target is { } t) _selectionAnchor = t.Position;
         }
         _host.CapturePointer(e.Pointer);
         e.Handled = true;
@@ -1177,12 +1145,26 @@ public sealed partial class DocumentView : UserControl
         if (_pointerDown)
         {
             var delta = new Point(point.Position.X - _pressPoint.X, point.Position.Y - _pressPoint.Y);
-            if (!_dragging && Math.Abs(delta.X) + Math.Abs(delta.Y) > 4 / Zoom) _dragging = true;
-            if (_dragging && _selectionAnchor is not null && HitPageNearest(point.Position) is { } hit && _texts.TryGetValue(hit.Page, out var text))
+            if (!_dragging && Math.Abs(delta.X) + Math.Abs(delta.Y) > 4 / Zoom)
             {
-                if (_selectUnit > 0) ExtendUnitSelection(hit.Page, text, CaretAt(text, hit.Display));
-                else SetSelectionFocus(new TextPosition(hit.Page, CaretAt(text, hit.Display)));
-                AutoScroll(e.GetCurrentPoint(_scroller).Position);
+                _dragging = true;
+                if (_linkDragAnchor is { } anchor)
+                {
+                    ClearSelection();
+                    _selectionAnchor = anchor;
+                    _linkDragAnchor = null;
+                }
+                // The I-beam's hot spot is in its middle, which makes it clear which line is aimed at.
+                if (_selectionAnchor is not null) SetCursor(InputSystemCursorShape.IBeam);
+            }
+            if (_dragging && _selectionAnchor is not null)
+            {
+                _dragContentPoint = point.Position;
+                _dragViewportPoint = e.GetCurrentPoint(_scroller).Position;
+                _dragOffsetX = _scroller.HorizontalOffset;
+                _dragOffsetY = _scroller.VerticalOffset;
+                UpdateDragSelection(point.Position);
+                UpdateAutoScroll();
             }
             return;
         }
@@ -1203,7 +1185,7 @@ public sealed partial class DocumentView : UserControl
                 cursor = InputSystemCursorShape.Hand;
                 status = string.IsNullOrWhiteSpace(annotation.Contents) ? null : annotation.Contents.ReplaceLineEndings(" ");
             }
-            else if (_texts.TryGetValue(h.Page, out var text) && CharAt(text, h.Display, 1) >= 0)
+            else if (_texts.TryGetValue(h.Page, out var text) && text.Layout.CharAt(h.Display, 1) >= 0)
             {
                 cursor = InputSystemCursorShape.IBeam;
             }
@@ -1212,15 +1194,78 @@ public sealed partial class DocumentView : UserControl
         SetStatus(status);
     }
 
-    private void AutoScroll(Point viewportPoint)
+    private void UpdateDragSelection(Point content)
     {
-        double dy = 0, dx = 0;
-        if (viewportPoint.Y < 0) dy = viewportPoint.Y;
-        else if (viewportPoint.Y > _scroller.ViewportHeight) dy = viewportPoint.Y - _scroller.ViewportHeight;
-        if (viewportPoint.X < 0) dx = viewportPoint.X;
-        else if (viewportPoint.X > _scroller.ViewportWidth) dx = viewportPoint.X - _scroller.ViewportWidth;
-        if (dx != 0 || dy != 0)
-            ScrollTo(Math.Max(0, _scroller.HorizontalOffset + dx), Math.Max(0, _scroller.VerticalOffset + dy), null, true);
+        if (DragTarget(content) is not { } target) return;
+        if (_selectUnit > 0) ExtendUnitSelection(target.Position, target.Text, target.Display);
+        else SetSelectionFocus(target.Position);
+    }
+
+    // While a selection drag is past the edge of the view, the view keeps scrolling that way, faster
+    // the further out the pointer is, and the selection follows the content passing under it.
+    private const double AutoScrollMargin = 16;
+    private Point _dragContentPoint, _dragViewportPoint;
+    private double _dragOffsetX, _dragOffsetY;
+    private double _autoScrollX, _autoScrollY;
+    private long _autoScrollTime;
+    private bool _autoScrolling;
+
+    /// <summary>How far (DIP) past the edge of the view, with a small margin inside it, the pointer is on each axis.</summary>
+    private (double X, double Y) AutoScrollExcess()
+    {
+        static double Excess(double v, double size) =>
+            v < AutoScrollMargin ? v - AutoScrollMargin : v > size - AutoScrollMargin ? v - (size - AutoScrollMargin) : 0;
+        var p = _dragViewportPoint;
+        return (Excess(p.X, _scroller.ViewportWidth), Excess(p.Y, _scroller.ViewportHeight));
+    }
+
+    private void UpdateAutoScroll()
+    {
+        var (x, y) = AutoScrollExcess();
+        bool wanted = _dragging && (x != 0 || y != 0);
+        if (wanted == _autoScrolling) return;
+        _autoScrolling = wanted;
+        if (wanted)
+        {
+            _autoScrollX = _scroller.HorizontalOffset;
+            _autoScrollY = _scroller.VerticalOffset;
+            _autoScrollTime = System.Diagnostics.Stopwatch.GetTimestamp();
+            CompositionTarget.Rendering += OnAutoScrollFrame;
+        }
+        else
+        {
+            CompositionTarget.Rendering -= OnAutoScrollFrame;
+        }
+    }
+
+    private void StopAutoScroll()
+    {
+        if (!_autoScrolling) return;
+        _autoScrolling = false;
+        CompositionTarget.Rendering -= OnAutoScrollFrame;
+    }
+
+    private void OnAutoScrollFrame(object? sender, object e)
+    {
+        if (!_dragging || _selectionAnchor is null)
+        {
+            StopAutoScroll();
+            return;
+        }
+        long now = System.Diagnostics.Stopwatch.GetTimestamp();
+        double seconds = Math.Min(0.1, (now - _autoScrollTime) / (double)System.Diagnostics.Stopwatch.Frequency);
+        _autoScrollTime = now;
+        var (ex, ey) = AutoScrollExcess();
+        static double Speed(double excess) => Math.Sign(excess) * Math.Min(3000, 60 + Math.Pow(Math.Abs(excess), 1.3) * 5);
+        double x = ex == 0 ? _autoScrollX : Math.Clamp(_autoScrollX + Speed(ex) * seconds, 0, _scroller.ScrollableWidth);
+        double y = ey == 0 ? _autoScrollY : Math.Clamp(_autoScrollY + Speed(ey) * seconds, 0, _scroller.ScrollableHeight);
+        if (x == _autoScrollX && y == _autoScrollY) return;
+        // Offsets are tracked here, since the scroller's lag behind ChangeView.
+        _autoScrollX = x;
+        _autoScrollY = y;
+        ScrollTo(x, y, null, true);
+        double z = _scroller.ZoomFactor;
+        UpdateDragSelection(new Point(_dragContentPoint.X + (x - _dragOffsetX) / z, _dragContentPoint.Y + (y - _dragOffsetY) / z));
     }
 
     // ---------------------------------------------------------------- middle-click scrolling
@@ -1358,6 +1403,7 @@ public sealed partial class DocumentView : UserControl
         bool dragging = _dragging;
         _pointerDown = false;
         _dragging = false;
+        StopAutoScroll();
         _host.ReleasePointerCaptures();
         if (_selectUnit > 0)
         {
@@ -1367,11 +1413,13 @@ public sealed partial class DocumentView : UserControl
             return;
         }
         var point = e.GetCurrentPoint(_host);
+        _linkDragAnchor = null;
         if (!dragging)
         {
-            if (_pressedLink is { } link && HitPage(point.Position) is { } h && LinkAt(h.Page, h.Display) == link)
+            if (_pressedLink is { } link)
             {
-                GoToDestination(link.Destination);
+                // A click on a link leaves the selection as it was; one released off the link is cancelled.
+                if (HitPage(point.Position) is { } h && LinkAt(h.Page, h.Display) == link) GoToDestination(link.Destination);
             }
             else if (HitPage(point.Position) is { } hit && AnnotationAt(hit.Page, hit.Display) is { } annotation && (e.KeyModifiers & VirtualKeyModifiers.Shift) == 0)
             {
@@ -1432,9 +1480,8 @@ public sealed partial class DocumentView : UserControl
         int start = i, end = Math.Min(i + 1, text.Count);
         if (unit >= 3)
         {
-            static bool IsBreak(int cp) => cp is '\r' or '\n';
-            while (start > 0 && !IsBreak(text.CodePoints[start - 1])) start--;
-            while (end < text.Count && !IsBreak(text.CodePoints[end])) end++;
+            int line = text.Layout.LineOf(i);
+            if (line >= 0) (start, end) = (text.Layout.Lines[line].Start, text.Layout.Lines[line].End);
         }
         else if (text.IsWordChar(i))
         {
@@ -1448,7 +1495,7 @@ public sealed partial class DocumentView : UserControl
     private bool SelectUnit(int page, Point display, int clicks)
     {
         if (!_texts.TryGetValue(page, out var text)) return false;
-        int i = CharAt(text, display, 1);
+        int i = text.Layout.CharAt(display, 1);
         if (i < 0) return false;
         var (start, end) = UnitBounds(text, i, clicks);
         ClearSelection();
@@ -1460,23 +1507,38 @@ public sealed partial class DocumentView : UserControl
         return true;
     }
 
-    /// <summary>Extends a unit-wise selection to the word/line under a caret position.</summary>
-    private void ExtendUnitSelection(int page, PageText text, int caret)
+    /// <summary>
+    /// Extends a unit-wise selection to the word/line at a caret position. <paramref name="display"/>
+    /// is the point it was found at, or null past the end of the page, where no unit is extended to.
+    /// </summary>
+    private void ExtendUnitSelection(TextPosition position, PageText text, Point? display)
     {
-        var position = new TextPosition(page, caret);
         bool forward = position.CompareTo(_unitStart) > 0;
-        int c = forward ? caret - 1 : caret;
-        var (start, end) = UnitBounds(text, c, _selectUnit);
+        int start = position.Caret, end = position.Caret;
+        if (display is { } p && text.Layout.Lines.Count > 0)
+        {
+            // A line is taken whole wherever on it the pointer is; a word when the caret is inside
+            // it, not when it's just past the end of the one before.
+            if (_selectUnit >= 3)
+            {
+                var line = text.Layout.Lines[text.Layout.LineAt(p)];
+                (start, end) = (line.Start, line.End);
+            }
+            else
+            {
+                (start, end) = UnitBounds(text, forward ? position.Caret - 1 : position.Caret, _selectUnit);
+            }
+        }
         if (forward)
         {
             _selectionAnchor = _unitStart;
-            var focus = new TextPosition(page, end);
+            var focus = position with { Caret = end };
             SetSelectionFocus(focus.CompareTo(_unitEnd) < 0 ? _unitEnd : focus);
         }
         else
         {
             _selectionAnchor = _unitEnd;
-            SetSelectionFocus(new TextPosition(page, start));
+            SetSelectionFocus(position with { Caret = start });
         }
     }
 
@@ -1512,6 +1574,8 @@ public sealed partial class DocumentView : UserControl
     private void OnPointerWheelChanged(object sender, PointerRoutedEventArgs e)
     {
         StopMiddleScroll();
+        // Otherwise its next frame would scroll back to the offset it tracks.
+        StopAutoScroll();
         if (_document is null || (_continuous && !_presentation)) return;
         if ((e.KeyModifiers & VirtualKeyModifiers.Control) != 0) return;
         // Single page mode: flip pages when scrolling past the edges.
@@ -1528,6 +1592,8 @@ public sealed partial class DocumentView : UserControl
 
     private void OnPreviewKeyDown(object sender, KeyRoutedEventArgs e)
     {
+        // Keys can scroll the view, which auto-scrolling would undo on its next frame.
+        if (e.Key is not (VirtualKey.Shift or VirtualKey.Control or VirtualKey.Menu or VirtualKey.LeftWindows or VirtualKey.RightWindows)) StopAutoScroll();
         if (_middleScroll)
         {
             StopMiddleScroll();

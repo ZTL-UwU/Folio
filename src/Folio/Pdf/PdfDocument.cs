@@ -390,11 +390,13 @@ public sealed unsafe partial class PdfDocument : IDisposable
                 }
             }
 
+            var (ordered, orderedBoxes, map) = TextLayout.ToReadingOrder(codePoints, boxes);
             return new PageText
             {
                 PageIndex = index,
-                CodePoints = codePoints,
-                Boxes = boxes,
+                CodePoints = ordered,
+                Boxes = orderedBoxes,
+                SourceIndexMap = map,
                 Links = [.. links],
                 Annotations = ReadAnnotations(index, page, transform),
                 Transform = transform,
