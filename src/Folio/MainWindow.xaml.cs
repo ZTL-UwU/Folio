@@ -227,17 +227,13 @@ public sealed partial class MainWindow : Window
     /// </summary>
     private async Task<(PdfDocument? Document, string? Password)> LoadAsync(string path, string? password)
     {
-        while (true)
+        try
         {
-            try
-            {
-                return (await PdfDocument.OpenAsync(path, password), password);
-            }
-            catch (PdfPasswordException ex)
-            {
-                password = await AskPasswordAsync(Path.GetFileName(path), ex.WrongPassword);
-                if (password is null) return (null, null);
-            }
+            return (await PdfDocument.OpenAsync(path, password), password);
+        }
+        catch (PdfPasswordException ex)
+        {
+            return await UnlockAsync(path, ex.WrongPassword);
         }
     }
 
@@ -515,37 +511,88 @@ public sealed partial class MainWindow : Window
         AppState.Save();
     }
 
-    private async Task<string?> AskPasswordAsync(string fileName, bool wrong)
+    /// <summary>
+    /// Asks for the password of the protected file at <paramref name="path"/>, keeping the prompt open
+    /// until the password is right. Returns no document if the user cancelled.
+    /// </summary>
+    private async Task<(PdfDocument? Document, string? Password)> UnlockAsync(string path, bool wrongPassword)
     {
-        var box = new PasswordBox { PlaceholderText = "Password", Width = 320 };
-        var panel = new StackPanel { Spacing = 12 };
-        panel.Children.Add(new TextBlock { Text = $"“{fileName}” is protected. Enter the password to open it.", TextWrapping = TextWrapping.Wrap });
-        panel.Children.Add(box);
-        if (wrong)
+        var box = new PasswordBox { PlaceholderText = "Password" };
+        var wrong = new TextBlock
         {
-            panel.Children.Add(new TextBlock
-            {
-                Text = "The password is incorrect. Try again.",
-                Style = (Style)Application.Current.Resources["CriticalTextBlockStyle"],
-            });
-        }
+            Text = "The password is incorrect. Try again.",
+            Style = (Style)Application.Current.Resources["CriticalTextBlockStyle"],
+            Visibility = wrongPassword ? Visibility.Visible : Visibility.Collapsed,
+        };
+        // Fixed width so a long file name wraps instead of widening the dialog past the password box.
+        var panel = new StackPanel { Spacing = 12, Width = 360 };
+        panel.Children.Add(new TextBlock { Text = $"“{Path.GetFileName(path)}” is protected. Enter the password to open it.", TextWrapping = TextWrapping.Wrap });
+        panel.Children.Add(box);
+        panel.Children.Add(wrong);
         var dialog = Dialogs.Create(Root.XamlRoot);
         dialog.Title = "Password required";
         dialog.Content = panel;
         dialog.PrimaryButtonText = "Unlock";
         dialog.CloseButtonText = "Cancel";
         dialog.DefaultButton = ContentDialogButton.Primary;
-        box.KeyDown += (_, e) =>
+
+        PdfDocument? document = null;
+        string? password = null;
+        System.Runtime.ExceptionServices.ExceptionDispatchInfo? failure = null;
+        bool checking = false;
+        // Whether the dialog can close: unlocked, or failed for a reason other than the password.
+        async Task<bool> TryUnlockAsync()
         {
-            if (e.Key == VirtualKey.Enter)
+            checking = true;
+            dialog.IsPrimaryButtonEnabled = false;
+            try
             {
-                dialog.Hide();
-                box.Tag = "submit";
+                password = box.Password;
+                document = await PdfDocument.OpenAsync(path, password);
+                return true;
             }
+            catch (PdfPasswordException)
+            {
+                wrong.Visibility = Visibility.Visible;
+                box.SelectAll();
+                box.Focus(FocusState.Programmatic);
+                return false;
+            }
+            catch (Exception ex)
+            {
+                failure = System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(ex);
+                return true;
+            }
+            finally
+            {
+                checking = false;
+                dialog.IsPrimaryButtonEnabled = true;
+            }
+        }
+
+        dialog.PrimaryButtonClick += async (_, e) =>
+        {
+            if (checking)
+            {
+                e.Cancel = true;
+                return;
+            }
+            var deferral = e.GetDeferral();
+            e.Cancel = !await TryUnlockAsync();
+            deferral.Complete();
         };
+        box.KeyDown += async (_, e) =>
+        {
+            if (e.Key != VirtualKey.Enter || checking) return;
+            e.Handled = true;
+            if (await TryUnlockAsync()) dialog.Hide();
+        };
+        // Don't let Cancel or Esc drop a document that's still opening.
+        dialog.Closing += (_, e) => e.Cancel |= checking;
         dialog.Opened += (_, _) => box.Focus(FocusState.Programmatic);
-        var result = await dialog.ShowAsync();
-        return result == ContentDialogResult.Primary || Equals(box.Tag, "submit") ? box.Password : null;
+        await dialog.ShowAsync();
+        failure?.Throw();
+        return document is null ? (null, null) : (document, password);
     }
 
     // ================================================================ chrome
