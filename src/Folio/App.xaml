@@ -1,0 +1,92 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Application
+    x:Class="Folio.App"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <Application.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <XamlControlsResources xmlns="using:Microsoft.UI.Xaml.Controls" />
+            </ResourceDictionary.MergedDictionaries>
+
+            <!--  Borderless icon buttons for the title bar and panel headers  -->
+            <Style x:Key="ToolbarButtonStyle" BasedOn="{StaticResource DefaultButtonStyle}" TargetType="Button">
+                <Setter Property="Background" Value="Transparent" />
+                <Setter Property="BorderThickness" Value="0" />
+                <Setter Property="Padding" Value="0" />
+                <Setter Property="Width" Value="36" />
+                <Setter Property="Height" Value="32" />
+                <Setter Property="VerticalAlignment" Value="Center" />
+            </Style>
+
+            <!--  Smaller variant that fits the standard 32px title bar  -->
+            <Style x:Key="TitleBarButtonStyle" BasedOn="{StaticResource ToolbarButtonStyle}" TargetType="Button">
+                <Setter Property="Width" Value="34" />
+                <Setter Property="Height" Value="28" />
+            </Style>
+
+            <Style x:Key="ToolbarToggleStyle" BasedOn="{StaticResource DefaultToggleButtonStyle}" TargetType="ToggleButton">
+                <Setter Property="Background" Value="Transparent" />
+                <Setter Property="BorderThickness" Value="0" />
+                <Setter Property="Padding" Value="0" />
+                <Setter Property="Width" Value="32" />
+                <Setter Property="Height" Value="32" />
+                <Setter Property="VerticalAlignment" Value="Center" />
+            </Style>
+
+            <Style x:Key="SubtleButtonStyle" BasedOn="{StaticResource DefaultButtonStyle}" TargetType="Button">
+                <Setter Property="Background" Value="Transparent" />
+                <Setter Property="BorderThickness" Value="0" />
+            </Style>
+
+            <!--
+                For elements built in code. Brushes looked up in Application.Current.Resources follow the
+                system theme, not the one chosen in Settings; theme resources in a style follow the element.
+            -->
+            <Style x:Key="SecondaryTextBlockStyle" BasedOn="{StaticResource BodyTextBlockStyle}" TargetType="TextBlock">
+                <Setter Property="Foreground" Value="{ThemeResource TextFillColorSecondaryBrush}" />
+            </Style>
+
+            <Style x:Key="SecondaryCaptionTextBlockStyle" BasedOn="{StaticResource CaptionTextBlockStyle}" TargetType="TextBlock">
+                <Setter Property="Foreground" Value="{ThemeResource TextFillColorSecondaryBrush}" />
+            </Style>
+
+            <Style x:Key="CriticalTextBlockStyle" BasedOn="{StaticResource BodyTextBlockStyle}" TargetType="TextBlock">
+                <Setter Property="Foreground" Value="{ThemeResource SystemFillColorCriticalBrush}" />
+            </Style>
+
+            <Style x:Key="CardBorderStyle" TargetType="Border">
+                <Setter Property="Background" Value="{ThemeResource CardBackgroundFillColorDefaultBrush}" />
+                <Setter Property="BorderBrush" Value="{ThemeResource CardStrokeColorDefaultBrush}" />
+                <Setter Property="BorderThickness" Value="1" />
+                <Setter Property="CornerRadius" Value="8" />
+            </Style>
+
+            <Style x:Key="KeyCapBorderStyle" TargetType="Border">
+                <Setter Property="Background" Value="{ThemeResource ControlFillColorDefaultBrush}" />
+                <Setter Property="BorderBrush" Value="{ThemeResource ControlStrokeColorDefaultBrush}" />
+                <Setter Property="BorderThickness" Value="1,1,1,2" />
+                <Setter Property="CornerRadius" Value="4" />
+                <Setter Property="Padding" Value="7,2,7,3" />
+            </Style>
+
+            <!--  Small floating surfaces over the document (status pill)  -->
+            <Style x:Key="FloatingBorderStyle" TargetType="Border">
+                <Setter Property="Background" Value="{ThemeResource AcrylicInAppFillColorDefaultBrush}" />
+                <Setter Property="BorderBrush" Value="{ThemeResource SurfaceStrokeColorFlyoutBrush}" />
+                <Setter Property="BorderThickness" Value="1" />
+            </Style>
+
+            <!--  Middle-click autoscroll origin marker  -->
+            <Style x:Key="MiddleScrollMarkerStyle" TargetType="Ellipse">
+                <Setter Property="Fill" Value="{ThemeResource AcrylicInAppFillColorDefaultBrush}" />
+                <Setter Property="Stroke" Value="{ThemeResource SurfaceStrokeColorFlyoutBrush}" />
+                <Setter Property="StrokeThickness" Value="1" />
+            </Style>
+
+            <Style x:Key="MiddleScrollGlyphStyle" TargetType="Shape">
+                <Setter Property="Fill" Value="{ThemeResource TextFillColorSecondaryBrush}" />
+            </Style>
+        </ResourceDictionary>
+    </Application.Resources>
+</Application>

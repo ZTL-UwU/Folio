@@ -1,0 +1,83 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows10.0.26100.0</TargetFramework>
+    <TargetPlatformMinVersion>10.0.22621.0</TargetPlatformMinVersion>
+    <RootNamespace>Folio</RootNamespace>
+    <AssemblyName>Folio</AssemblyName>
+    <Version>1.0.0</Version>
+    <Product>Folio</Product>
+    <Copyright>Copyright (c) 2026 ZTL-UwU</Copyright>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>Assets\AppIcon.ico</ApplicationIcon>
+    <Platforms>x64;ARM64</Platforms>
+    <RuntimeIdentifiers>win-x64;win-arm64</RuntimeIdentifiers>
+    <UseWinUI>true</UseWinUI>
+    <!-- Unpackaged by default; -p:WindowsPackageType=MSIX builds the Store package (see below). -->
+    <WindowsPackageType Condition="'$(WindowsPackageType)' == ''">None</WindowsPackageType>
+    <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+    <!-- Program.cs checks for a running instance before starting XAML. -->
+    <DefineConstants>$(DefineConstants);DISABLE_XAML_GENERATED_MAIN</DefineConstants>
+    <!-- `dotnet publish` (what CI ships) precompiles the code, so less is JIT-compiled at startup. -->
+    <PublishReadyToRun>true</PublishReadyToRun>
+    <!-- Both builds bundle .NET, trimmed on publish to the code Folio actually reaches. Trimming
+         needs a self-contained build; it also means users don't have to install .NET. -->
+    <SelfContained>true</SelfContained>
+    <PublishTrimmed>true</PublishTrimmed>
+    <!-- Without it, publishing an unpackaged app leaves out Folio.pri and the compiled XAML, and it crashes on launch. -->
+    <EnableMsixTooling>true</EnableMsixTooling>
+  </PropertyGroup>
+  <!-- The Store installs the Windows App SDK framework package with the app, so it isn't bundled.
+       There's no such package for .NET, so that still is (see SelfContained above). -->
+  <PropertyGroup Condition="'$(WindowsPackageType)' == 'MSIX'">
+    <WindowsAppSDKSelfContained>false</WindowsAppSDKSelfContained>
+    <GenerateAppxPackageOnBuild>true</GenerateAppxPackageOnBuild>
+    <!-- The Store signs what it publishes. -->
+    <AppxPackageSigningEnabled>false</AppxPackageSigningEnabled>
+    <!-- Kept apart from the unpackaged build, which bundles a different set of runtime files. -->
+    <OutputPath>bin\msix\$(Platform)\$(Configuration)\</OutputPath>
+    <IntermediateOutputPath>obj\msix\$(Platform)\$(Configuration)\</IntermediateOutputPath>
+    <!-- One .msix per architecture under out\AppPackages; CI combines them into a bundle for the Store. -->
+    <AppxPackageDir>$(MSBuildProjectDirectory)\..\..\out\AppPackages\</AppxPackageDir>
+    <AppxBundle>Never</AppxBundle>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(RuntimeIdentifier)' == '' and '$(Platform)' == 'ARM64'">
+    <RuntimeIdentifier>win-arm64</RuntimeIdentifier>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(RuntimeIdentifier)' == ''">
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+  </PropertyGroup>
+  <ItemGroup>
+    <Content Include="Assets\**" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+  <!-- Logos for Package.appxmanifest; the unpackaged build doesn't use them. -->
+  <ItemGroup Condition="'$(WindowsPackageType)' != 'MSIX'">
+    <Content Remove="Assets\Package\**" />
+  </ItemGroup>
+  <!-- The parts of Windows App SDK 2.5.1 that Folio uses. The Microsoft.WindowsAppSDK meta-package
+       also brings AI, ML, Search and Widgets, which add about 60 MB (onnxruntime, DirectML, ...) to every build.
+       Versions are the ones that meta-package pins; bump them together. -->
+  <PropertyGroup>
+    <WindowsAppSdkVersion>2.5.1</WindowsAppSdkVersion>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.WindowsAppSDK.Runtime" Version="$(WindowsAppSdkVersion)" />
+    <PackageReference Include="Microsoft.WindowsAppSDK.WinUI" Version="2.3.9" />
+    <PackageReference Include="Microsoft.WindowsAppSDK.Foundation" Version="2.3.12" />
+    <PackageReference Include="Microsoft.WindowsAppSDK.InteractiveExperiences" Version="2.1.9" />
+    <PackageReference Include="Microsoft.WindowsAppSDK.Base" Version="2.0.4" />
+    <PackageReference Include="bblanchon.PDFium.Win32" Version="156.0.8076" />
+  </ItemGroup>
+  <!-- License texts that have to ship with the binaries. See THIRD-PARTY-NOTICES.md. -->
+  <ItemGroup>
+    <Content Include="..\..\LICENSE" Link="licenses\LICENSE.txt" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\..\THIRD-PARTY-NOTICES.md" Link="licenses\THIRD-PARTY-NOTICES.md" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\..\licenses\PDFium-LICENSE.txt" Link="licenses\PDFium-LICENSE.txt" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="$(NuGetPackageRoot)microsoft.windowsappsdk.runtime\$(WindowsAppSdkVersion)\license.txt" Link="licenses\WindowsAppSDK-license.txt" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="$(NuGetPackageRoot)microsoft.windowsappsdk.runtime\$(WindowsAppSdkVersion)\NOTICE.txt" Link="licenses\WindowsAppSDK-NOTICE.txt" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>

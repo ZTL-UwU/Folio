@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Used only by the MSIX build (-p:WindowsPackageType=MSIX). See docs/packaging.md. -->
+<Package
+  xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
+  xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
+  xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
+  IgnorableNamespaces="uap rescap">
+
+  <!-- Name and Publisher are placeholders until the app name is reserved in Partner Center
+       (Product identity page); the Store build must use the values given there. -->
+  <Identity Name="Folio" Publisher="CN=ZTL-UwU" Version="1.0.0.0" />
+
+  <Properties>
+    <DisplayName>Folio</DisplayName>
+    <PublisherDisplayName>ZTL-UwU</PublisherDisplayName>
+    <Logo>Assets\Package\StoreLogo.png</Logo>
+  </Properties>
+
+  <Dependencies>
+    <TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.22621.0" MaxVersionTested="10.0.26100.0" />
+  </Dependencies>
+
+  <Resources>
+    <Resource Language="en-US" />
+  </Resources>
+
+  <Applications>
+    <Application Id="App" Executable="$targetnametoken$.exe" EntryPoint="$targetentrypoint$">
+      <uap:VisualElements
+        DisplayName="Folio"
+        Description="A PDF reader"
+        BackgroundColor="transparent"
+        Square150x150Logo="Assets\Package\Square150x150Logo.png"
+        Square44x44Logo="Assets\Package\Square44x44Logo.png">
+        <uap:SplashScreen Image="Assets\Package\SplashScreen.png" />
+      </uap:VisualElements>
+      <Extensions>
+        <!-- Explorer starts Folio with the file on the command line, the same as the unpackaged build. -->
+        <uap:Extension Category="windows.fileTypeAssociation">
+          <uap:FileTypeAssociation Name="pdf">
+            <uap:SupportedFileTypes>
+              <uap:FileType ContentType="application/pdf">.pdf</uap:FileType>
+            </uap:SupportedFileTypes>
+            <uap:DisplayName>PDF Document</uap:DisplayName>
+            <uap:Logo>Assets\Package\Square44x44Logo.png</uap:Logo>
+          </uap:FileTypeAssociation>
+        </uap:Extension>
+      </Extensions>
+    </Application>
+  </Applications>
+
+  <Capabilities>
+    <rescap:Capability Name="runFullTrust" />
+  </Capabilities>
+</Package>

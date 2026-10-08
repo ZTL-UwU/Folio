@@ -1,0 +1,732 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Window
+    x:Class="Folio.MainWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:controls="using:Folio.Controls"
+    xmlns:local="using:Folio"
+    xmlns:services="using:Folio.Services">
+
+    <Grid x:Name="Root" AllowDrop="True" DragOver="OnDragOver" Drop="OnDrop">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <!--  Title bar  -->
+        <TitleBar
+            x:Name="AppTitleBar"
+            Title="Folio"
+            IsBackButtonVisible="False"
+            BackRequested="OnTitleBarBackRequested"
+            IsPaneToggleButtonVisible="False"
+            PaneToggleRequested="OnPaneToggleRequested">
+            <TitleBar.Resources>
+                <!--  Keep the standard 32px height even though the bar has header content  -->
+                <x:Double x:Key="TitleBarExpandedHeight">32</x:Double>
+            </TitleBar.Resources>
+
+            <TitleBar.RightHeader>
+                <StackPanel
+                    Margin="0,0,4,0"
+                    VerticalAlignment="Center"
+                    Orientation="Horizontal"
+                    Spacing="4">
+
+                    <StackPanel
+                        x:Name="ZoomControls"
+                        Margin="8,0,0,0"
+                        VerticalAlignment="Center"
+                        Orientation="Horizontal"
+                        Spacing="2"
+                        Visibility="Collapsed">
+                        <Button
+                            Click="OnZoomOut"
+                            Style="{StaticResource TitleBarButtonStyle}"
+                            AutomationProperties.Name="Zoom out"
+                            ToolTipService.ToolTip="Zoom out (Ctrl+Minus)">
+                            <FontIcon FontSize="16" Glyph="&#xE738;" />
+                        </Button>
+                        <Button
+                            x:Name="ZoomButton"
+                            Height="28"
+                            MinWidth="64"
+                            Padding="8,2,8,3"
+                            AutomationProperties.Name="Zoom"
+                            Background="Transparent"
+                            BorderThickness="0"
+                            Content="100%"
+                            ToolTipService.ToolTip="Zoom">
+                            <Button.Flyout>
+                                <MenuFlyout x:Name="ZoomMenu" Placement="Bottom">
+                                    <RadioMenuFlyoutItem x:Name="FitPageItem" Click="OnFitPage" GroupName="zoom" Text="Fit page">
+                                        <RadioMenuFlyoutItem.Icon>
+                                            <FontIcon Glyph="&#xE9A6;" />
+                                        </RadioMenuFlyoutItem.Icon>
+                                    </RadioMenuFlyoutItem>
+                                    <RadioMenuFlyoutItem x:Name="FitWidthItem" Click="OnFitWidth" GroupName="zoom" Text="Fit width">
+                                        <RadioMenuFlyoutItem.Icon>
+                                            <!-- Segoe Fluent has no fit-width glyph; this is the E9A6 frame with a ↔ arrow. -->
+                                            <PathIcon Data="M2,2H14A2,2,0,0,1,16,4V12A2,2,0,0,1,14,14H2A2,2,0,0,1,0,12V4A2,2,0,0,1,2,2Z M2,3A1,1,0,0,0,1,4V12A1,1,0,0,0,2,13H14A1,1,0,0,0,15,12V4A1,1,0,0,0,14,3Z M3.146,7.646L5.146,5.646A0.5,0.5,0,0,1,5.854,6.354L4.707,7.5H11.293L10.146,6.354A0.5,0.5,0,0,1,10.854,5.646L12.854,7.646A0.5,0.5,0,0,1,12.854,8.354L10.854,10.354A0.5,0.5,0,0,1,10.146,9.646L11.293,8.5H4.707L5.854,9.646A0.5,0.5,0,0,1,5.146,10.354L3.146,8.354A0.5,0.5,0,0,1,3.146,7.646Z" />
+                                        </RadioMenuFlyoutItem.Icon>
+                                    </RadioMenuFlyoutItem>
+                                    <MenuFlyoutSeparator />
+                                    <MenuFlyoutItem Click="OnZoomPreset" Tag="0.5" Text="50%" />
+                                    <MenuFlyoutItem Click="OnZoomPreset" Tag="0.75" Text="75%" />
+                                    <MenuFlyoutItem Click="OnZoomPreset" Tag="1" Text="100%" KeyboardAcceleratorTextOverride="Ctrl+0" />
+                                    <MenuFlyoutItem Click="OnZoomPreset" Tag="1.25" Text="125%" />
+                                    <MenuFlyoutItem Click="OnZoomPreset" Tag="1.5" Text="150%" />
+                                    <MenuFlyoutItem Click="OnZoomPreset" Tag="2" Text="200%" />
+                                    <MenuFlyoutItem Click="OnZoomPreset" Tag="4" Text="400%" />
+                                </MenuFlyout>
+                            </Button.Flyout>
+                        </Button>
+                        <Button
+                            Click="OnZoomIn"
+                            Style="{StaticResource TitleBarButtonStyle}"
+                            AutomationProperties.Name="Zoom in"
+                            ToolTipService.ToolTip="Zoom in (Ctrl+Plus)">
+                            <FontIcon FontSize="16" Glyph="&#xE710;" />
+                        </Button>
+                    </StackPanel>
+
+                    <AppBarSeparator x:Name="HeaderSeparator" Visibility="Collapsed" />
+
+                    <Button
+                        x:Name="MoreButton"
+                        Style="{StaticResource TitleBarButtonStyle}"
+                        AutomationProperties.Name="Main menu"
+                        ToolTipService.ToolTip="More options">
+                        <FontIcon FontSize="16" Glyph="&#xE712;" />
+                        <Button.Flyout>
+                            <MenuFlyout x:Name="MainMenu" Placement="BottomEdgeAlignedRight" Opening="OnMainMenuOpening">
+                                <MenuFlyoutItem Click="OnOpen" KeyboardAcceleratorTextOverride="Ctrl+O" Text="Open…">
+                                    <MenuFlyoutItem.Icon>
+                                        <FontIcon Glyph="&#xE8E5;" />
+                                    </MenuFlyoutItem.Icon>
+                                </MenuFlyoutItem>
+                                <MenuFlyoutItem Click="OnNewWindow" KeyboardAcceleratorTextOverride="Ctrl+N" Text="New window">
+                                    <MenuFlyoutItem.Icon>
+                                        <FontIcon Glyph="&#xE78B;" />
+                                    </MenuFlyoutItem.Icon>
+                                </MenuFlyoutItem>
+                                <MenuFlyoutSeparator x:Name="DocumentSeparator" />
+                                <MenuFlyoutItem x:Name="SaveItem" Click="OnSave" KeyboardAcceleratorTextOverride="Ctrl+S" Text="Save">
+                                    <MenuFlyoutItem.Icon>
+                                        <FontIcon Glyph="&#xE74E;" />
+                                    </MenuFlyoutItem.Icon>
+                                </MenuFlyoutItem>
+                                <MenuFlyoutItem x:Name="SaveAsItem" Click="OnSaveAs" KeyboardAcceleratorTextOverride="Ctrl+Shift+S" Text="Save a copy…">
+                                    <MenuFlyoutItem.Icon>
+                                        <FontIcon Glyph="&#xE792;" />
+                                    </MenuFlyoutItem.Icon>
+                                </MenuFlyoutItem>
+                                <MenuFlyoutItem x:Name="PrintItem" Click="OnPrint" KeyboardAcceleratorTextOverride="Ctrl+P" Text="Print…">
+                                    <MenuFlyoutItem.Icon>
+                                        <FontIcon Glyph="&#xE749;" />
+                                    </MenuFlyoutItem.Icon>
+                                </MenuFlyoutItem>
+                                <MenuFlyoutSeparator x:Name="ViewSeparator" />
+                                <ToggleMenuFlyoutItem x:Name="ContinuousItem" Click="OnToggleContinuous" Text="Continuous" />
+                                <ToggleMenuFlyoutItem x:Name="DualItem" Click="OnToggleDual" Text="Dual pages" />
+                                <ToggleMenuFlyoutItem x:Name="OddLeftItem" Click="OnToggleOddLeft" Text="Odd pages on the left" />
+                                <ToggleMenuFlyoutItem x:Name="InvertItem" Click="OnToggleInvert" KeyboardAcceleratorTextOverride="Ctrl+I" Text="Invert colors" />
+                                <MenuFlyoutSubItem x:Name="RotateItem" Text="Rotate">
+                                    <MenuFlyoutSubItem.Icon>
+                                        <FontIcon Glyph="&#xE7AD;" />
+                                    </MenuFlyoutSubItem.Icon>
+                                    <MenuFlyoutItem Click="OnRotateLeft" KeyboardAcceleratorTextOverride="Ctrl+Left" Text="Rotate left" />
+                                    <MenuFlyoutItem Click="OnRotateRight" KeyboardAcceleratorTextOverride="Ctrl+Right" Text="Rotate right" />
+                                </MenuFlyoutSubItem>
+                                <MenuFlyoutSeparator x:Name="ModeSeparator" />
+                                <MenuFlyoutItem x:Name="FullscreenItem" Click="OnToggleFullscreen" KeyboardAcceleratorTextOverride="F11" Text="Full screen">
+                                    <MenuFlyoutItem.Icon>
+                                        <FontIcon Glyph="&#xE740;" />
+                                    </MenuFlyoutItem.Icon>
+                                </MenuFlyoutItem>
+                                <MenuFlyoutItem x:Name="PresentItem" Click="OnPresent" KeyboardAcceleratorTextOverride="F5" Text="Present">
+                                    <MenuFlyoutItem.Icon>
+                                        <FontIcon Glyph="&#xE7F4;" />
+                                    </MenuFlyoutItem.Icon>
+                                </MenuFlyoutItem>
+                                <MenuFlyoutSeparator x:Name="InfoSeparator" />
+                                <MenuFlyoutItem x:Name="ReloadItem" Click="OnReload" KeyboardAcceleratorTextOverride="Ctrl+R" Text="Reload">
+                                    <MenuFlyoutItem.Icon>
+                                        <FontIcon Glyph="&#xE72C;" />
+                                    </MenuFlyoutItem.Icon>
+                                </MenuFlyoutItem>
+                                <MenuFlyoutItem x:Name="ShowInFolderItem" Click="OnShowInFolder" Text="Show in folder">
+                                    <MenuFlyoutItem.Icon>
+                                        <FontIcon Glyph="&#xE838;" />
+                                    </MenuFlyoutItem.Icon>
+                                </MenuFlyoutItem>
+                                <MenuFlyoutItem x:Name="PropertiesItem" Click="OnProperties" KeyboardAcceleratorTextOverride="Alt+Enter" Text="Properties">
+                                    <MenuFlyoutItem.Icon>
+                                        <FontIcon Glyph="&#xE946;" />
+                                    </MenuFlyoutItem.Icon>
+                                </MenuFlyoutItem>
+                                <MenuFlyoutSeparator />
+                                <MenuFlyoutItem Click="OnSettings" KeyboardAcceleratorTextOverride="Ctrl+," Text="Settings">
+                                    <MenuFlyoutItem.Icon>
+                                        <FontIcon Glyph="&#xE713;" />
+                                    </MenuFlyoutItem.Icon>
+                                </MenuFlyoutItem>
+                                <MenuFlyoutItem Click="OnShortcuts" KeyboardAcceleratorTextOverride="Ctrl+?" Text="Keyboard shortcuts">
+                                    <MenuFlyoutItem.Icon>
+                                        <FontIcon Glyph="&#xE765;" />
+                                    </MenuFlyoutItem.Icon>
+                                </MenuFlyoutItem>
+                                <MenuFlyoutItem Click="OnAbout" Text="About Folio">
+                                    <MenuFlyoutItem.Icon>
+                                        <FontIcon Glyph="&#xE946;" />
+                                    </MenuFlyoutItem.Icon>
+                                </MenuFlyoutItem>
+                                <MenuFlyoutSeparator x:Name="CloseSeparator" />
+                                <MenuFlyoutItem x:Name="CloseItem" Click="OnCloseDocument" KeyboardAcceleratorTextOverride="Ctrl+W" Text="Close document">
+                                    <MenuFlyoutItem.Icon>
+                                        <FontIcon Glyph="&#xE711;" />
+                                    </MenuFlyoutItem.Icon>
+                                </MenuFlyoutItem>
+                            </MenuFlyout>
+                        </Button.Flyout>
+                    </Button>
+                </StackPanel>
+            </TitleBar.RightHeader>
+        </TitleBar>
+
+        <!--  Start page  -->
+        <Grid x:Name="StartView" Grid.Row="1">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="*" />
+            </Grid.RowDefinitions>
+
+            <!--  Empty state  -->
+            <StackPanel
+                x:Name="EmptyState"
+                Grid.RowSpan="2"
+                MaxWidth="420"
+                Margin="24,0,24,48"
+                HorizontalAlignment="Center"
+                VerticalAlignment="Center"
+                Spacing="8">
+                <Image
+                    Width="112"
+                    Height="112"
+                    Margin="0,0,0,12"
+                    Source="ms-appx:///Assets/AppIcon.png" />
+                <TextBlock HorizontalAlignment="Center" Style="{StaticResource TitleTextBlockStyle}" Text="Open a document" />
+                <TextBlock
+                    HorizontalAlignment="Center"
+                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                    Text="Drag and drop a PDF here, or pick one from your files."
+                    TextAlignment="Center"
+                    TextWrapping="Wrap" />
+                <Button
+                    MinWidth="120"
+                    Margin="0,16,0,0"
+                    HorizontalAlignment="Center"
+                    Click="OnOpen"
+                    Content="Open…"
+                    Style="{StaticResource AccentButtonStyle}" />
+            </StackPanel>
+
+            <!--  Recent documents  -->
+            <Grid
+                x:Name="RecentHeader"
+                Margin="36,20,36,8"
+                Visibility="Collapsed">
+                <TextBlock VerticalAlignment="Center" Style="{StaticResource SubtitleTextBlockStyle}" Text="Recent documents" />
+                <StackPanel HorizontalAlignment="Right" Orientation="Horizontal" Spacing="8">
+                    <Button Click="OnClearRecent" Content="Clear list" Style="{StaticResource SubtleButtonStyle}" />
+                    <Button Click="OnOpen" Style="{StaticResource AccentButtonStyle}">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <FontIcon FontSize="14" Glyph="&#xE8E5;" />
+                            <TextBlock Text="Open…" />
+                        </StackPanel>
+                    </Button>
+                </StackPanel>
+            </Grid>
+            <GridView
+                x:Name="RecentGrid"
+                Grid.Row="1"
+                Padding="32,4,32,32"
+                IsItemClickEnabled="True"
+                ItemClick="OnRecentClick"
+                SelectionMode="None"
+                Visibility="Collapsed">
+                <GridView.ItemContainerStyle>
+                    <Style BasedOn="{StaticResource DefaultGridViewItemStyle}" TargetType="GridViewItem">
+                        <Setter Property="Margin" Value="4" />
+                    </Style>
+                </GridView.ItemContainerStyle>
+                <GridView.ItemTemplate>
+                    <DataTemplate x:DataType="local:RecentItem">
+                        <Grid
+                            Width="168"
+                            Padding="8,8,8,10"
+                            RightTapped="OnRecentRightTapped"
+                            RowSpacing="8">
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="212" />
+                                <RowDefinition Height="Auto" />
+                            </Grid.RowDefinitions>
+                            <!--  Same rounded-fill hairline as the sidebar thumbnails: a stroke washes out over the paper at the corners  -->
+                            <Border
+                                Padding="1"
+                                HorizontalAlignment="Center"
+                                VerticalAlignment="Bottom"
+                                Background="{ThemeResource CardStrokeColorDefaultBrush}"
+                                CornerRadius="5">
+                                <Border Background="White" CornerRadius="4">
+                                    <Grid>
+                                        <FontIcon
+                                            Margin="40,60"
+                                            FontSize="40"
+                                            Foreground="#9E9E9E"
+                                            Glyph="&#xE8A5;"
+                                            Visibility="{x:Bind PlaceholderVisibility, Mode=OneWay}" />
+                                        <Image MaxWidth="150" MaxHeight="210" Source="{x:Bind Thumbnail, Mode=OneWay}" Stretch="Uniform" />
+                                    </Grid>
+                                </Border>
+                            </Border>
+                            <StackPanel Grid.Row="1" Spacing="1">
+                                <TextBlock
+                                    MaxLines="1"
+                                    Style="{StaticResource BodyStrongTextBlockStyle}"
+                                    Text="{x:Bind Name}"
+                                    TextTrimming="CharacterEllipsis"
+                                    ToolTipService.ToolTip="{x:Bind Path}" />
+                                <TextBlock
+                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                    MaxLines="1"
+                                    Style="{StaticResource CaptionTextBlockStyle}"
+                                    Text="{x:Bind Details}"
+                                    TextTrimming="CharacterEllipsis" />
+                            </StackPanel>
+                        </Grid>
+                    </DataTemplate>
+                </GridView.ItemTemplate>
+            </GridView>
+        </Grid>
+
+        <!--  Document  -->
+        <Grid x:Name="DocumentLayout" Grid.Row="1" Visibility="Collapsed">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition x:Name="SidebarColumn" Width="260" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+
+            <!--  Sidebar  -->
+            <Grid x:Name="Sidebar" Padding="0,0,0,0">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+
+                <!--  Page switcher, kept visually quiet  -->
+                <SelectorBar
+                    x:Name="SidebarSelector"
+                    Margin="4,0,4,4"
+                    HorizontalAlignment="Center"
+                    SelectionChanged="OnSidebarSelectionChanged">
+                    <SelectorBar.Resources>
+                        <ResourceDictionary>
+                            <ResourceDictionary.ThemeDictionaries>
+                                <ResourceDictionary x:Key="Light">
+                                    <StaticResource x:Key="SelectorBarItemForeground" ResourceKey="TextFillColorTertiaryBrush" />
+                                    <StaticResource x:Key="SelectorBarItemForegroundPointerOver" ResourceKey="TextFillColorSecondaryBrush" />
+                                    <StaticResource x:Key="SelectorBarItemForegroundSelected" ResourceKey="TextFillColorPrimaryBrush" />
+                                    <StaticResource x:Key="SelectorBarItemPillFill" ResourceKey="TextFillColorSecondaryBrush" />
+                                </ResourceDictionary>
+                                <ResourceDictionary x:Key="Dark">
+                                    <StaticResource x:Key="SelectorBarItemForeground" ResourceKey="TextFillColorTertiaryBrush" />
+                                    <StaticResource x:Key="SelectorBarItemForegroundPointerOver" ResourceKey="TextFillColorSecondaryBrush" />
+                                    <StaticResource x:Key="SelectorBarItemForegroundSelected" ResourceKey="TextFillColorPrimaryBrush" />
+                                    <StaticResource x:Key="SelectorBarItemPillFill" ResourceKey="TextFillColorSecondaryBrush" />
+                                </ResourceDictionary>
+                            </ResourceDictionary.ThemeDictionaries>
+                            <!--  The default style leaves Background null, so only the glyph is hit-testable until hover  -->
+                            <Style TargetType="SelectorBarItem">
+                                <Setter Property="Background" Value="Transparent" />
+                            </Style>
+                        </ResourceDictionary>
+                    </SelectorBar.Resources>
+                    <SelectorBarItem x:Name="ThumbnailsTab" AutomationProperties.Name="Thumbnails" IsSelected="True" ToolTipService.ToolTip="Thumbnails">
+                        <SelectorBarItem.Icon>
+                            <FontIcon Glyph="&#xF0E2;" />
+                        </SelectorBarItem.Icon>
+                    </SelectorBarItem>
+                    <SelectorBarItem x:Name="OutlineTab" AutomationProperties.Name="Outline" ToolTipService.ToolTip="Outline">
+                        <SelectorBarItem.Icon>
+                            <FontIcon Glyph="&#xE8FD;" />
+                        </SelectorBarItem.Icon>
+                    </SelectorBarItem>
+                    <SelectorBarItem x:Name="AnnotationsTab" AutomationProperties.Name="Annotations" ToolTipService.ToolTip="Annotations">
+                        <SelectorBarItem.Icon>
+                            <FontIcon Glyph="&#xE70B;" />
+                        </SelectorBarItem.Icon>
+                    </SelectorBarItem>
+                    <SelectorBarItem x:Name="AttachmentsTab" AutomationProperties.Name="Attachments" ToolTipService.ToolTip="Attachments">
+                        <SelectorBarItem.Icon>
+                            <FontIcon Glyph="&#xE723;" />
+                        </SelectorBarItem.Icon>
+                    </SelectorBarItem>
+                </SelectorBar>
+
+                <!--  Thumbnails  -->
+                <GridView
+                    x:Name="ThumbnailList"
+                    Grid.Row="1"
+                    Padding="0,0,0,12"
+                    ContainerContentChanging="OnThumbnailContainerContentChanging"
+                    IsItemClickEnabled="True"
+                    ItemClick="OnThumbnailClick"
+                    SelectionMode="Single">
+                    <GridView.ItemsPanel>
+                        <ItemsPanelTemplate>
+                            <ItemsWrapGrid HorizontalAlignment="Center" MaximumRowsOrColumns="1" Orientation="Horizontal" />
+                        </ItemsPanelTemplate>
+                    </GridView.ItemsPanel>
+                    <GridView.Resources>
+                        <!--  Current page: a neutral fill instead of the accent border; hover is a shade lighter  -->
+                        <ResourceDictionary>
+                            <ResourceDictionary.ThemeDictionaries>
+                                <ResourceDictionary x:Key="Light">
+                                    <StaticResource x:Key="GridViewItemBackgroundPointerOver" ResourceKey="SubtleFillColorTertiaryBrush" />
+                                    <StaticResource x:Key="GridViewItemBackgroundPressed" ResourceKey="SubtleFillColorSecondaryBrush" />
+                                    <StaticResource x:Key="GridViewItemBackgroundSelected" ResourceKey="SubtleFillColorSecondaryBrush" />
+                                    <StaticResource x:Key="GridViewItemBackgroundSelectedPointerOver" ResourceKey="SubtleFillColorSecondaryBrush" />
+                                    <StaticResource x:Key="GridViewItemBackgroundSelectedPressed" ResourceKey="SubtleFillColorTertiaryBrush" />
+                                    <StaticResource x:Key="GridViewItemForeground" ResourceKey="TextFillColorSecondaryBrush" />
+                                    <StaticResource x:Key="GridViewItemForegroundPointerOver" ResourceKey="TextFillColorPrimaryBrush" />
+                                    <StaticResource x:Key="GridViewItemForegroundSelected" ResourceKey="TextFillColorPrimaryBrush" />
+                                </ResourceDictionary>
+                                <ResourceDictionary x:Key="Dark">
+                                    <StaticResource x:Key="GridViewItemBackgroundPointerOver" ResourceKey="SubtleFillColorTertiaryBrush" />
+                                    <StaticResource x:Key="GridViewItemBackgroundPressed" ResourceKey="SubtleFillColorSecondaryBrush" />
+                                    <StaticResource x:Key="GridViewItemBackgroundSelected" ResourceKey="SubtleFillColorSecondaryBrush" />
+                                    <StaticResource x:Key="GridViewItemBackgroundSelectedPointerOver" ResourceKey="SubtleFillColorSecondaryBrush" />
+                                    <StaticResource x:Key="GridViewItemBackgroundSelectedPressed" ResourceKey="SubtleFillColorTertiaryBrush" />
+                                    <StaticResource x:Key="GridViewItemForeground" ResourceKey="TextFillColorSecondaryBrush" />
+                                    <StaticResource x:Key="GridViewItemForegroundPointerOver" ResourceKey="TextFillColorPrimaryBrush" />
+                                    <StaticResource x:Key="GridViewItemForegroundSelected" ResourceKey="TextFillColorPrimaryBrush" />
+                                </ResourceDictionary>
+                            </ResourceDictionary.ThemeDictionaries>
+                            <Thickness x:Key="GridViewItemSelectedBorderThickness">0</Thickness>
+                            <CornerRadius x:Key="GridViewItemCornerRadius">8</CornerRadius>
+                            <SolidColorBrush x:Key="GridViewItemSelectedInnerBorderBrush" Color="Transparent" />
+                        </ResourceDictionary>
+                    </GridView.Resources>
+                    <GridView.ItemContainerStyle>
+                        <Style BasedOn="{StaticResource DefaultGridViewItemStyle}" TargetType="GridViewItem">
+                            <Setter Property="Margin" Value="0,2" />
+                        </Style>
+                    </GridView.ItemContainerStyle>
+                    <GridView.ItemTemplate>
+                        <DataTemplate x:DataType="local:ThumbnailItem">
+                            <StackPanel Padding="10,10,10,8" Spacing="3">
+                                <!--  The hairline is a rounded fill behind the page, not a stroke: a stroke washes out over the paper at the corners  -->
+                                <Border
+                                    Width="{x:Bind Width, Mode=OneWay}"
+                                    Height="{x:Bind Height, Mode=OneWay}"
+                                    Padding="1"
+                                    HorizontalAlignment="Center"
+                                    Background="{ThemeResource CardStrokeColorDefaultBrush}"
+                                    CornerRadius="5">
+                                    <Border Background="{x:Bind Paper, Mode=OneWay}" CornerRadius="4">
+                                        <Image Source="{x:Bind Image, Mode=OneWay}" Stretch="Fill" />
+                                    </Border>
+                                </Border>
+                                <TextBlock
+                                    HorizontalAlignment="Center"
+                                    FontWeight="{x:Bind local:ThumbnailItem.LabelWeight(IsCurrent), Mode=OneWay}"
+                                    Style="{StaticResource CaptionTextBlockStyle}"
+                                    Text="{x:Bind Label}" />
+                            </StackPanel>
+                        </DataTemplate>
+                    </GridView.ItemTemplate>
+                </GridView>
+
+                <!--  Outline  -->
+                <TreeView
+                    x:Name="OutlineTree"
+                    Grid.Row="1"
+                    Padding="0,0,4,12"
+                    CanDragItems="False"
+                    CanReorderItems="False"
+                    ItemInvoked="OnOutlineInvoked"
+                    SelectionMode="None"
+                    Visibility="Collapsed">
+                    <TreeView.ItemTemplate>
+                        <DataTemplate x:DataType="TreeViewNode">
+                            <TreeViewItem ToolTipService.ToolTip="{x:Bind local:MainWindow.OutlineTitle(Content)}">
+                                <Grid ColumnSpacing="8">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Text="{x:Bind local:MainWindow.OutlineTitle(Content)}" TextTrimming="CharacterEllipsis" />
+                                    <TextBlock
+                                        Grid.Column="1"
+                                        Margin="0,0,12,0"
+                                        Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                                        Style="{StaticResource CaptionTextBlockStyle}"
+                                        VerticalAlignment="Center"
+                                        Text="{x:Bind local:MainWindow.OutlinePage(Content)}" />
+                                </Grid>
+                            </TreeViewItem>
+                        </DataTemplate>
+                    </TreeView.ItemTemplate>
+                </TreeView>
+
+                <!--  Annotations  -->
+                <Grid x:Name="AnnotationsPanel" Grid.Row="1" Visibility="Collapsed">
+                    <ListView
+                        x:Name="AnnotationList"
+                        Padding="0,0,0,12"
+                        IsItemClickEnabled="True"
+                        ItemClick="OnAnnotationClick"
+                        SelectionMode="None">
+                        <ListView.ItemTemplate>
+                            <DataTemplate x:DataType="local:AnnotationItem">
+                                <Grid Padding="0,8" ColumnSpacing="12" RightTapped="OnAnnotationRightTapped">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <Border
+                                        Width="4"
+                                        Margin="0,2"
+                                        VerticalAlignment="Stretch"
+                                        Background="{x:Bind ColorBrush}"
+                                        CornerRadius="2" />
+                                    <StackPanel Grid.Column="1" Spacing="2">
+                                        <Grid>
+                                            <TextBlock Style="{StaticResource BodyStrongTextBlockStyle}" Text="{x:Bind Kind}" />
+                                            <TextBlock
+                                                HorizontalAlignment="Right"
+                                                Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                                                Style="{StaticResource CaptionTextBlockStyle}"
+                                                Text="{x:Bind Page}" />
+                                        </Grid>
+                                        <TextBlock
+                                            MaxLines="3"
+                                            Text="{x:Bind Contents}"
+                                            TextTrimming="CharacterEllipsis"
+                                            TextWrapping="Wrap"
+                                            Visibility="{x:Bind ContentsVisibility}" />
+                                        <TextBlock
+                                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                            Style="{StaticResource CaptionTextBlockStyle}"
+                                            Text="{x:Bind Details}"
+                                            TextTrimming="CharacterEllipsis" />
+                                    </StackPanel>
+                                </Grid>
+                            </DataTemplate>
+                        </ListView.ItemTemplate>
+                    </ListView>
+                    <StackPanel
+                        x:Name="AnnotationsEmpty"
+                        Margin="24"
+                        VerticalAlignment="Center"
+                        Spacing="8"
+                        Visibility="Collapsed">
+                        <FontIcon FontSize="32" Foreground="{ThemeResource TextFillColorTertiaryBrush}" Glyph="&#xE70B;" />
+                        <TextBlock HorizontalAlignment="Center" Style="{StaticResource BodyStrongTextBlockStyle}" Text="No annotations" />
+                        <TextBlock
+                            HorizontalAlignment="Center"
+                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                            Style="{StaticResource CaptionTextBlockStyle}"
+                            Text="Select text to highlight it, or right-click a page to add a note."
+                            TextAlignment="Center"
+                            TextWrapping="Wrap" />
+                    </StackPanel>
+                </Grid>
+
+                <!--  Attachments  -->
+                <ListView
+                    x:Name="AttachmentList"
+                    Grid.Row="1"
+                    Padding="0,0,0,12"
+                    IsItemClickEnabled="True"
+                    ItemClick="OnAttachmentClick"
+                    SelectionMode="None"
+                    Visibility="Collapsed">
+                    <ListView.ItemTemplate>
+                        <DataTemplate x:DataType="local:AttachmentItem">
+                            <Grid Padding="0,6" ColumnSpacing="12" RightTapped="OnAttachmentRightTapped">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <FontIcon VerticalAlignment="Center" Glyph="&#xE8A5;" />
+                                <StackPanel Grid.Column="1">
+                                    <TextBlock Text="{x:Bind Name}" TextTrimming="CharacterEllipsis" />
+                                    <TextBlock Foreground="{ThemeResource TextFillColorSecondaryBrush}" Style="{StaticResource CaptionTextBlockStyle}" Text="{x:Bind Size}" />
+                                </StackPanel>
+                            </Grid>
+                        </DataTemplate>
+                    </ListView.ItemTemplate>
+                </ListView>
+
+                <!--  Search results  -->
+                <Grid x:Name="SearchPanel" Grid.Row="0" Grid.RowSpan="2" Visibility="Collapsed">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                    </Grid.RowDefinitions>
+                    <AutoSuggestBox
+                        x:Name="SearchBox"
+                        Margin="12,2,12,4"
+                        AutomationProperties.Name="Search in document"
+                        PlaceholderText="Search"
+                        QueryIcon="Find"
+                        QuerySubmitted="OnSearchSubmitted"
+                        TextChanged="OnSearchTextChanged" />
+                    <Grid Grid.Row="1" Margin="16,0,8,6" ColumnSpacing="2">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel VerticalAlignment="Center">
+                            <TextBlock
+                                x:Name="SearchStatus"
+                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                Style="{StaticResource CaptionTextBlockStyle}"
+                                Text="" />
+                        </StackPanel>
+                        <ToggleButton
+                            x:Name="MatchCaseToggle"
+                            Grid.Column="1"
+                            Click="OnSearchOptionChanged"
+                            Style="{StaticResource ToolbarToggleStyle}"
+                            AutomationProperties.Name="Match case"
+                            ToolTipService.ToolTip="Match case">
+                            <TextBlock FontSize="14" Text="Aa" />
+                        </ToggleButton>
+                        <ToggleButton
+                            x:Name="WholeWordToggle"
+                            Grid.Column="2"
+                            Click="OnSearchOptionChanged"
+                            Style="{StaticResource ToolbarToggleStyle}"
+                            AutomationProperties.Name="Whole words only"
+                            ToolTipService.ToolTip="Whole words only">
+                            <TextBlock FontSize="14" Text="ab" TextDecorations="Underline" />
+                        </ToggleButton>
+                        <Button
+                            Grid.Column="3"
+                            Click="OnPreviousResult"
+                            Style="{StaticResource ToolbarButtonStyle}"
+                            AutomationProperties.Name="Previous result"
+                            ToolTipService.ToolTip="Previous result (Shift+F3)">
+                            <FontIcon FontSize="14" Glyph="&#xE70E;" />
+                        </Button>
+                        <Button
+                            Grid.Column="4"
+                            Click="OnNextResult"
+                            Style="{StaticResource ToolbarButtonStyle}"
+                            AutomationProperties.Name="Next result"
+                            ToolTipService.ToolTip="Next result (F3)">
+                            <FontIcon FontSize="14" Glyph="&#xE70D;" />
+                        </Button>
+                    </Grid>
+                    <ProgressBar
+                        x:Name="SearchProgress"
+                        Grid.Row="1"
+                        Margin="16,0,16,0"
+                        VerticalAlignment="Bottom"
+                        IsIndeterminate="False"
+                        Visibility="Collapsed" />
+                    <ListView
+                        x:Name="SearchResultList"
+                        Grid.Row="2"
+                        Padding="0,0,0,12"
+                        ContainerContentChanging="OnSearchContainerContentChanging"
+                        IsItemClickEnabled="True"
+                        ItemClick="OnSearchResultClick"
+                        SelectionMode="Single">
+                        <ListView.ItemTemplate>
+                            <DataTemplate x:DataType="local:SearchItem">
+                                <Grid Padding="0,7" ColumnSpacing="12">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock MaxLines="2" TextTrimming="CharacterEllipsis" TextWrapping="Wrap" />
+                                    <TextBlock
+                                        Grid.Column="1"
+                                        Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                                        Style="{StaticResource CaptionTextBlockStyle}"
+                                        Text="{x:Bind Page}" />
+                                </Grid>
+                            </DataTemplate>
+                        </ListView.ItemTemplate>
+                    </ListView>
+                </Grid>
+            </Grid>
+
+            <!--  Document surface  -->
+            <Border
+                x:Name="DocumentCard"
+                Grid.Column="1"
+                Background="{ThemeResource LayerFillColorDefaultBrush}"
+                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                BorderThickness="1,1,0,0"
+                CornerRadius="8,0,0,0">
+                <!--  Turns black while presenting  -->
+                <Grid x:Name="DocumentSurface">
+                    <controls:DocumentView x:Name="Viewer" />
+                    <ProgressRing
+                        x:Name="LoadingRing"
+                        Width="40"
+                        Height="40"
+                        IsActive="False" />
+                </Grid>
+            </Border>
+
+            <!--  Sidebar resize grip, on top of the document edge so it's easy to hit  -->
+            <controls:SizerGrip
+                x:Name="SidebarGrip"
+                Grid.Column="1"
+                Width="8"
+                Margin="-4,0,0,0"
+                HorizontalAlignment="Left"
+                Background="Transparent" />
+        </Grid>
+
+        <!--  Transient notifications  -->
+        <InfoBar
+            x:Name="Notification"
+            Grid.Row="1"
+            MaxWidth="560"
+            Margin="24"
+            HorizontalAlignment="Center"
+            VerticalAlignment="Bottom"
+            IsOpen="False" />
+
+        <Border
+            x:Name="FullscreenHint"
+            Grid.Row="0"
+            Grid.RowSpan="2"
+            Margin="0,24,0,0"
+            Padding="16,8"
+            HorizontalAlignment="Center"
+            VerticalAlignment="Top"
+            Background="{ThemeResource AcrylicInAppFillColorDefaultBrush}"
+            BorderBrush="{ThemeResource SurfaceStrokeColorFlyoutBrush}"
+            BorderThickness="1"
+            CornerRadius="8"
+            IsHitTestVisible="False"
+            Opacity="0">
+            <Border.OpacityTransition>
+                <ScalarTransition />
+            </Border.OpacityTransition>
+            <TextBlock x:Name="FullscreenHintText" Text="Press Esc to exit full screen" />
+        </Border>
+    </Grid>
+</Window>
