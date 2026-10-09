@@ -825,6 +825,11 @@ public sealed partial class MainWindow : Window
         }
     }
 
+    /// <summary>
+    /// Draws the page at the screen's resolution first, then again at twice that and scaled down,
+    /// which is noticeably crisper. The second pass waits until the PDFium thread has nothing else
+    /// queued, so it doesn't hold up opening a document or the quick pass for the rest.
+    /// </summary>
     private async void RenderThumbnail(ThumbnailItem item)
     {
         if (_document is null || item.Image is not null) return;
@@ -833,15 +838,21 @@ public sealed partial class MainWindow : Window
         var cts = item.Pending = new CancellationTokenSource();
         double raster = Root.XamlRoot?.RasterizationScale ?? 1;
         int rotation = _thumbnailRotation;
+        bool inverted = _thumbnailInverted;
         var size = document.PageSizes[item.Index];
         double w = rotation is 90 or 270 ? size.Height : size.Width;
-        double scale = item.Width * raster / w;
-        var region = new RectInt32(0, 0, Math.Max(1, (int)Math.Round(item.Width * raster)), Math.Max(1, (int)Math.Round(item.Height * raster)));
+        // The image sits inside the 1-pixel hairline; a bitmap sized for the outer box gets squeezed into it and blurs.
+        double width = item.Width - 2, height = item.Height - 2;
         try
         {
-            using var buffer = await document.RenderAsync(item.Index, scale, rotation, region, _thumbnailInverted, WorkPriority.Background, cts.Token);
-            if (buffer is null || cts.IsCancellationRequested || document != _document) return;
-            item.Image = PageView.ToBitmap(buffer);
+            foreach (var (supersample, priority) in new[] { (1, WorkPriority.Background), (2, WorkPriority.Idle) })
+            {
+                double px = raster * supersample;
+                var region = new RectInt32(0, 0, Math.Max(1, (int)Math.Round(width * px)), Math.Max(1, (int)Math.Round(height * px)));
+                using var buffer = await document.RenderAsync(item.Index, width * px / w, rotation, region, inverted, priority, cts.Token);
+                if (buffer is null || cts.IsCancellationRequested || document != _document) return;
+                item.Image = PageView.ToBitmap(buffer);
+            }
         }
         catch (Exception ex) when (ex is OperationCanceledException or ObjectDisposedException or InvalidDataException)
         {
