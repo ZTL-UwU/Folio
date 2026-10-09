@@ -32,6 +32,13 @@ internal sealed partial class ThumbnailProvider : IInitializeWithStream, IThumbn
         {
             // Explorer shows the file icon instead.
         }
+        finally
+        {
+            // Done with the file. Left to the GC, the wrapper could keep it open in the long-lived
+            // surrogate, so it couldn't be deleted or renamed until a collection happened to run.
+            if ((object)_stream is ComObject com) com.FinalRelease();
+            _stream = null;
+        }
         return bitmap != 0 ? HResult.S_OK : HResult.E_FAIL;
     }
 }
@@ -57,9 +64,18 @@ internal static unsafe class Exports
     [UnmanagedCallersOnly(EntryPoint = "DllGetClassObject")]
     public static int DllGetClassObject(Guid* clsid, Guid* iid, nint* obj)
     {
+        if (obj == null) return HResult.E_POINTER;
         *obj = 0;
         if (*clsid != ThumbnailProvider.Clsid) return HResult.CLASS_E_CLASSNOTAVAILABLE;
-        return QueryInterface(new ClassFactory(), *iid, out *obj);
+        try
+        {
+            return QueryInterface(new ClassFactory(), *iid, out *obj);
+        }
+        catch (Exception e)
+        {
+            // An exception can't cross back into COM; it would end the process.
+            return e.HResult;
+        }
     }
 
     /// <summary>Never: the .NET runtime in this DLL can't be shut down and unloaded.</summary>

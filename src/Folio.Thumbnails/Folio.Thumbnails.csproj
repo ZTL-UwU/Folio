@@ -14,5 +14,8 @@
     <NativeLib>Shared</NativeLib>
     <InvariantGlobalization>true</InvariantGlobalization>
     <UseSystemResourceKeys>true</UseSystemResourceKeys>
+    <!-- Folio's MSIX build publishes this with bin and obj elsewhere; the generated sources a solution
+         build leaves in these would otherwise be compiled in a second time. -->
+    <DefaultItemExcludes>$(DefaultItemExcludes);bin/**;obj/**</DefaultItemExcludes>
   </PropertyGroup>
 </Project>

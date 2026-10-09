@@ -111,6 +111,8 @@ public unsafe class ThumbnailTests
         Assert.Equal(HResult.AlreadyInitialized, provider.Initialize(new ByteStream(TestPdf.Create()), 0));
         Assert.Equal(HResult.S_OK, provider.GetThumbnail(64, out nint bitmap, out _));
         Win32.DeleteObject(bitmap);
+        // The stream was released once the thumbnail was made.
+        Assert.Equal(HResult.E_UNEXPECTED, provider.GetThumbnail(64, out _, out _));
     }
 
     private static Thumbnail Render(byte[] pdf, int size)

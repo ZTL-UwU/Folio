@@ -8,6 +8,7 @@ internal static class HResult
     public const int S_OK = 0;
     public const int S_FALSE = 1;
     public const int E_FAIL = unchecked((int)0x80004005);
+    public const int E_POINTER = unchecked((int)0x80004003);
     public const int E_UNEXPECTED = unchecked((int)0x8000FFFF);
     public const int CLASS_E_NOAGGREGATION = unchecked((int)0x80040110);
     public const int CLASS_E_CLASSNOTAVAILABLE = unchecked((int)0x80040111);

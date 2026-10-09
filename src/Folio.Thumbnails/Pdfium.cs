@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 
 namespace Folio.Thumbnails;
@@ -60,14 +61,18 @@ internal static unsafe class Pdfium
     {
         nint module;
         const uint Flags = Win32.GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | Win32.GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT;
-        if (Win32.GetModuleHandleExW(Flags, (nint)(delegate*<void>)&EnsureLoaded, &module))
+        if (!Win32.GetModuleHandleExW(Flags, (nint)(delegate*<void>)&EnsureLoaded, &module))
         {
-            const int Capacity = 1024;
-            char* path = stackalloc char[Capacity];
-            uint length = Win32.GetModuleFileNameW(module, path, Capacity);
-            if (length > 0 && length < Capacity) return Path.GetDirectoryName(new string(path, 0, (int)length))!;
+            // Not inside a native module: the tests run this code JIT-compiled, with pdfium.dll next to them.
+            // In the Native AOT DLL that would be the host's folder (System32), so there it's an error.
+            if (RuntimeFeature.IsDynamicCodeSupported) return AppContext.BaseDirectory;
+            throw new InvalidOperationException("The thumbnail handler's module wasn't found.");
         }
-        // Not inside a native module: the tests run this code JIT-compiled, with pdfium.dll next to them.
-        return AppContext.BaseDirectory;
+        // Room for a long path.
+        var path = new char[32 * 1024];
+        uint length;
+        fixed (char* p = path) length = Win32.GetModuleFileNameW(module, p, (uint)path.Length);
+        if (length == 0 || length >= path.Length) throw new InvalidOperationException("The thumbnail handler's path wasn't found.");
+        return Path.GetDirectoryName(new string(path, 0, (int)length))!;
     }
 }

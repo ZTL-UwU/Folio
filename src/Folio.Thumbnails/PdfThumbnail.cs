@@ -5,9 +5,6 @@ namespace Folio.Thumbnails;
 /// <summary>Renders the first page of a PDF into a bitmap for File Explorer.</summary>
 internal static unsafe class PdfThumbnail
 {
-    /// <summary>The file PDFium is reading, for <see cref="GetBlock"/>. Guarded by <see cref="Pdfium.Gate"/>.</summary>
-    private static BlockReader? _reader;
-
     /// <summary>
     /// Renders page 1 so its longer side is <paramref name="size"/> pixels. Returns a top-down 32-bit
     /// premultiplied ARGB HBITMAP owned by the caller, or 0 if the stream isn't a PDF that opens without a password.
@@ -22,8 +19,8 @@ internal static unsafe class PdfThumbnail
         {
             Pdfium.EnsureLoaded();
             // PDFium reads the file on demand, so a large PDF isn't copied into memory just for its first page.
-            var access = new FPDF_FILEACCESS { FileLen = (uint)length, GetBlock = &GetBlock };
-            _reader = new BlockReader(stream, (long)length);
+            using var reader = new GCHandle<BlockReader>(new BlockReader(stream, (long)length));
+            var access = new FPDF_FILEACCESS { FileLen = (uint)length, GetBlock = &GetBlock, Param = (void*)GCHandle<BlockReader>.ToIntPtr(reader) };
             nint document = Pdfium.FPDF_LoadCustomDocument(&access, null);
             try
             {
@@ -32,7 +29,6 @@ internal static unsafe class PdfThumbnail
             finally
             {
                 if (document != 0) Pdfium.FPDF_CloseDocument(document);
-                _reader = null;
             }
         }
     }
@@ -97,18 +93,25 @@ internal static unsafe class PdfThumbnail
         /// <summary>Margin below and right of the page.</summary>
         public int After => (int)Math.Ceiling(2.5 * _sigma + _offset);
 
-        /// <summary>Fills the bitmap with the shadow of a <paramref name="w"/> x <paramref name="h"/> page placed at (Before, Before).</summary>
+        /// <summary>
+        /// Draws the shadow of a <paramref name="w"/> x <paramref name="h"/> page placed at (Before, Before)
+        /// into the bitmap, around the page. The page's own pixels are left for PDFium to fill.
+        /// </summary>
         public void Draw(uint* bits, int bw, int bh, int w, int h)
         {
             // A blurred rectangle is the product of a blurred edge pair along each axis.
             var column = Profile(bw, w);
             var row = Profile(bh, h);
+            int before = Before;
             for (int y = 0; y < bh; y++)
             {
+                double alpha = 255 * Opacity * row[y];
+                bool besidePage = y >= before && y < before + h;
                 for (int x = 0; x < bw; x++)
                 {
+                    if (besidePage && x == before) x += w;
                     // Black, so premultiplied and straight alpha are the same.
-                    bits[y * bw + x] = (uint)Math.Round(255 * Opacity * column[x] * row[y]) << 24;
+                    bits[y * bw + x] = (uint)Math.Round(alpha * column[x]) << 24;
                 }
             }
         }
@@ -142,7 +145,7 @@ internal static unsafe class PdfThumbnail
     {
         try
         {
-            return _reader?.Read(position, buffer, size) == true ? 1 : 0;
+            return GCHandle<BlockReader>.FromIntPtr((nint)param).Target.Read(position, buffer, size) ? 1 : 0;
         }
         catch
         {
