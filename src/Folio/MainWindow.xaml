@@ -401,18 +401,19 @@
                                 </Border>
                             </Border>
                             <StackPanel Grid.Row="1" Spacing="1">
+                                <!--  The type-ramp styles wrap, which would cut the name at its first word break  -->
                                 <TextBlock
-                                    MaxLines="1"
                                     Style="{StaticResource BodyStrongTextBlockStyle}"
                                     Text="{x:Bind Name}"
                                     TextTrimming="CharacterEllipsis"
+                                    TextWrapping="NoWrap"
                                     ToolTipService.ToolTip="{x:Bind Path}" />
                                 <TextBlock
                                     Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                                    MaxLines="1"
                                     Style="{StaticResource CaptionTextBlockStyle}"
                                     Text="{x:Bind Details}"
-                                    TextTrimming="CharacterEllipsis" />
+                                    TextTrimming="CharacterEllipsis"
+                                    TextWrapping="NoWrap" />
                             </StackPanel>
                         </Grid>
                     </DataTemplate>
