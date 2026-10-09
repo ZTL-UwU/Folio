@@ -36,6 +36,7 @@ public sealed partial class MainWindow : Window
     private readonly ObservableCollection<AnnotationItem> _annotationItems = [];
     private readonly Dictionary<int, PdfAnnotation[]> _annotations = [];
     private List<ThumbnailItem> _thumbnails = [];
+    private List<RecentItem> _recentItems = [];
     private readonly EventHandler _recentChanged;
     /// <summary>Folders under %TEMP%\Folio holding attachments this window extracted; deleted when it closes.</summary>
     private readonly List<string> _attachmentFolders = [];
@@ -141,6 +142,7 @@ public sealed partial class MainWindow : Window
 
         Root.Loaded += (_, _) => _loaded.TrySetResult();
         SearchBox.AddHandler(UIElement.KeyDownEvent, new KeyEventHandler(OnSearchKeyDown), true);
+        RecentSearchBox.AddHandler(UIElement.KeyDownEvent, new KeyEventHandler(OnRecentSearchKeyDown), true);
         SetupAccelerators();
         // AppState is static: unsubscribed in OnClosed, or it would keep every closed window alive.
         _recentChanged = (_, _) => DispatcherQueue.TryEnqueue(RefreshRecent);
@@ -1527,13 +1529,40 @@ public sealed partial class MainWindow : Window
     private void RefreshRecent()
     {
         var recent = AppState.Preferences.RememberRecent ? AppState.Recent : [];
-        var items = recent.Select(r => new RecentItem(r)).ToList();
-        RecentGrid.ItemsSource = items;
-        bool any = items.Count > 0;
+        _recentItems = recent.Select(r => new RecentItem(r)).ToList();
+        bool any = _recentItems.Count > 0;
         EmptyState.Visibility = any ? Visibility.Collapsed : Visibility.Visible;
         RecentHeader.Visibility = any ? Visibility.Visible : Visibility.Collapsed;
-        RecentGrid.Visibility = any ? Visibility.Visible : Visibility.Collapsed;
-        foreach (var item in items) LoadRecentThumbnail(item);
+        FilterRecent();
+        foreach (var item in _recentItems) LoadRecentThumbnail(item);
+    }
+
+    /// <summary>Shows the recent documents whose name or path contains every word typed in the search box.</summary>
+    private void FilterRecent()
+    {
+        var terms = RecentSearchBox.Text.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        var matches = terms.Length == 0
+            ? _recentItems
+            : _recentItems.Where(item => terms.All(t =>
+                item.Name.Contains(t, StringComparison.CurrentCultureIgnoreCase) || item.Path.Contains(t, StringComparison.CurrentCultureIgnoreCase))).ToList();
+        RecentGrid.ItemsSource = matches;
+        RecentGrid.Visibility = matches.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+        RecentNoMatches.Visibility = _recentItems.Count > 0 && matches.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    private void OnRecentSearchTextChanged(AutoSuggestBox sender, AutoSuggestBoxTextChangedEventArgs args) => FilterRecent();
+
+    // Enter opens the first match.
+    private async void OnRecentSearchSubmitted(AutoSuggestBox sender, AutoSuggestBoxQuerySubmittedEventArgs args)
+    {
+        if (RecentGrid.ItemsSource is List<RecentItem> { Count: > 0 } matches) await OpenAsync(matches[0].Path);
+    }
+
+    private void OnRecentSearchKeyDown(object sender, KeyRoutedEventArgs e)
+    {
+        if (e.Key != VirtualKey.Escape || string.IsNullOrEmpty(RecentSearchBox.Text)) return;
+        RecentSearchBox.Text = "";
+        e.Handled = true;
     }
 
     private static async void LoadRecentThumbnail(RecentItem item)
@@ -1712,13 +1741,21 @@ public sealed partial class MainWindow : Window
 
         // Ctrl+W closes the window when there's no start page to go back to.
         static bool WorksWithoutDocument(VirtualKey key) =>
-            key is VirtualKey.O or VirtualKey.N or VirtualKey.F1 or (VirtualKey)191 or (VirtualKey)188
+            key is VirtualKey.O or VirtualKey.N or VirtualKey.F or VirtualKey.F1 or (VirtualKey)191 or (VirtualKey)188
             || key == VirtualKey.W && !AppState.Preferences.RememberRecent;
     }
 
     private void FocusSearch()
     {
-        if (_document is null) return;
+        if (_settingsOpen) return;
+        if (_document is null)
+        {
+            // On the start page, search the recent documents instead.
+            if (RecentHeader.Visibility != Visibility.Visible) return;
+            RecentSearchBox.Focus(FocusState.Keyboard);
+            if (RecentSearchBox.FindDescendant<TextBox>() is { } recentBox) recentBox.SelectAll();
+            return;
+        }
         ShowSearchPanel();
         SearchBox.UpdateLayout();
         SearchBox.Focus(FocusState.Keyboard);
