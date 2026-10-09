@@ -37,6 +37,7 @@ public sealed partial class MainWindow : Window
     private readonly Dictionary<int, PdfAnnotation[]> _annotations = [];
     private List<ThumbnailItem> _thumbnails = [];
     private List<RecentItem> _recentItems = [];
+    private readonly ObservableCollection<RecentItem> _recentMatches = [];
     private readonly EventHandler _recentChanged;
     /// <summary>Folders under %TEMP%\Folio holding attachments this window extracted; deleted when it closes.</summary>
     private readonly List<string> _attachmentFolders = [];
@@ -110,6 +111,7 @@ public sealed partial class MainWindow : Window
 
         SearchResultList.ItemsSource = _searchItems;
         AnnotationList.ItemsSource = _annotationItems;
+        RecentGrid.ItemsSource = _recentMatches;
         SidebarGrip.Target = SidebarColumn;
         foreach (var list in new Control[] { ThumbnailList, OutlineTree, AnnotationList, AttachmentList, SearchResultList })
             ScrollBarHideFix.Attach(list);
@@ -1545,7 +1547,11 @@ public sealed partial class MainWindow : Window
             ? _recentItems
             : _recentItems.Where(item => terms.All(t =>
                 item.Name.Contains(t, StringComparison.CurrentCultureIgnoreCase) || item.Path.Contains(t, StringComparison.CurrentCultureIgnoreCase))).ToList();
-        RecentGrid.ItemsSource = matches;
+        // Sync in place so only cards entering or leaving the filter animate; replacing ItemsSource replays every card's entrance on each keystroke.
+        for (int i = _recentMatches.Count - 1; i >= 0; i--)
+            if (!matches.Contains(_recentMatches[i])) _recentMatches.RemoveAt(i);
+        for (int i = 0; i < matches.Count; i++)
+            if (i == _recentMatches.Count || _recentMatches[i] != matches[i]) _recentMatches.Insert(i, matches[i]);
         RecentGrid.Visibility = matches.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
         RecentNoMatches.Visibility = _recentItems.Count > 0 && matches.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
     }
@@ -1555,7 +1561,7 @@ public sealed partial class MainWindow : Window
     // Enter opens the first match.
     private async void OnRecentSearchSubmitted(AutoSuggestBox sender, AutoSuggestBoxQuerySubmittedEventArgs args)
     {
-        if (RecentGrid.ItemsSource is List<RecentItem> { Count: > 0 } matches) await OpenAsync(matches[0].Path);
+        if (_recentMatches.Count > 0) await OpenAsync(_recentMatches[0].Path);
     }
 
     private void OnRecentSearchKeyDown(object sender, KeyRoutedEventArgs e)

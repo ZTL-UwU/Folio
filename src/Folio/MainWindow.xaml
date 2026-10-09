@@ -378,6 +378,12 @@
                 ItemClick="OnRecentClick"
                 SelectionMode="None"
                 Visibility="Collapsed">
+                <!--  Entrance only: the default add/delete and reorder transitions make cards slide around while the search filters them  -->
+                <GridView.ItemContainerTransitions>
+                    <TransitionCollection>
+                        <EntranceThemeTransition IsStaggeringEnabled="False" />
+                    </TransitionCollection>
+                </GridView.ItemContainerTransitions>
                 <GridView.ItemContainerStyle>
                     <Style BasedOn="{StaticResource DefaultGridViewItemStyle}" TargetType="GridViewItem">
                         <Setter Property="Margin" Value="4" />
