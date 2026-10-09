@@ -77,7 +77,7 @@ public sealed class PdfDocumentTests : IDisposable
     }
 
     [Fact]
-    public async Task SaveAs_LeavesTheDocumentModifiedAndTheOriginalUntouched()
+    public async Task SaveAs_MarksTheDocumentSavedAndLeavesTheOriginalUntouched()
     {
         byte[] original = TestPdf.Create();
         string path = _temp.Write("doc.pdf", original);
@@ -87,7 +87,7 @@ public sealed class PdfDocumentTests : IDisposable
         await document.AddNoteAsync(0, new Point(20, 20), Yellow, "copy only");
         await document.SaveAsync(copy);
 
-        Assert.True(document.IsModified);
+        Assert.False(document.IsModified);
         Assert.Equal(original, File.ReadAllBytes(path));
         Assert.Equal(original, File.ReadAllBytes(copy)[..original.Length]);
     }
