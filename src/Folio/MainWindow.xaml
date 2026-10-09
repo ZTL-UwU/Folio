@@ -510,11 +510,9 @@
                     ItemClick="OnThumbnailClick"
                     SelectionMode="Single">
                     <GridView.ItemsPanel>
+                        <!--  Not ItemsWrapGrid: it sizes every item like the first, cropping pages of other sizes  -->
                         <ItemsPanelTemplate>
-                            <ItemsWrapGrid
-                                HorizontalAlignment="Center"
-                                MaximumRowsOrColumns="1"
-                                Orientation="Horizontal" />
+                            <ItemsStackPanel />
                         </ItemsPanelTemplate>
                     </GridView.ItemsPanel>
                     <GridView.Resources>
@@ -550,6 +548,7 @@
                     <GridView.ItemContainerStyle>
                         <Style BasedOn="{StaticResource DefaultGridViewItemStyle}" TargetType="GridViewItem">
                             <Setter Property="Margin" Value="0,2" />
+                            <Setter Property="HorizontalAlignment" Value="Center" />
                         </Style>
                     </GridView.ItemContainerStyle>
                     <GridView.ItemTemplate>

@@ -736,7 +736,7 @@ public sealed partial class MainWindow : Window
     private double SidebarWidth()
     {
         if (AppState.Preferences.SidebarWidthOverride is { } width) return Math.Clamp(width, 150, 520);
-        double thumbnail = _document is { } document ? document.PageSizes.Max(s => ThumbnailSize(s, _thumbnailRotation).Width) : ThumbnailWidth * 0.82;
+        double thumbnail = _document is { PageCount: > 0 } document ? ThumbnailSizes(document.PageSizes, _thumbnailRotation).Max(s => s.Width) : ThumbnailWidth * 0.82;
         // Item padding (10 on each side) plus a roomy gutter on each side of the list.
         return Math.Clamp(thumbnail + 20 + 2 * 28, 150, 520);
     }
@@ -779,9 +779,10 @@ public sealed partial class MainWindow : Window
         _thumbnailRotation = Viewer.PageRotation;
         _thumbnailInverted = Viewer.IsInverted;
         var paper = new SolidColorBrush(_thumbnailInverted ? Windows.UI.Color.FromArgb(255, 30, 30, 30) : Colors.White);
+        var sizes = ThumbnailSizes(_document.PageSizes, _thumbnailRotation);
         _thumbnails = Enumerable.Range(0, _document.PageCount).Select(i =>
         {
-            var (width, height) = ThumbnailSize(_document.PageSizes[i], _thumbnailRotation);
+            var (width, height) = sizes[i];
             return new ThumbnailItem { Index = i, Label = _document.GetPageLabel(i), Width = width, Height = height, Paper = paper };
         }).ToList();
         ThumbnailList.ItemsSource = _thumbnails;
@@ -789,20 +790,24 @@ public sealed partial class MainWindow : Window
         SyncThumbnailSelection();
     }
 
-    private static (double Width, double Height) ThumbnailSize(Windows.Foundation.Size size, int rotation)
+    /// <summary>
+    /// One scale for every page, so mixed page sizes keep their proportions: portrait pages would
+    /// be <see cref="ThumbnailWidth"/> * 0.82 wide and landscape ones <see cref="ThumbnailWidth"/>,
+    /// and whichever page needs the smallest scale for that sets it for all.
+    /// </summary>
+    private static (double Width, double Height)[] ThumbnailSizes(IReadOnlyList<Windows.Foundation.Size> sizes, int rotation)
     {
+        if (sizes.Count == 0) return [];
         bool swap = rotation is 90 or 270;
-        double w = swap ? size.Height : size.Width, h = swap ? size.Width : size.Height;
-        double width = w >= h ? ThumbnailWidth : Math.Round(ThumbnailWidth * w / h);
-        double height = w >= h ? Math.Round(ThumbnailWidth * h / w) : ThumbnailWidth;
-        if (w < h)
+        var pages = sizes.Select(s => swap ? (W: s.Height, H: s.Width) : (W: s.Width, H: s.Height)).ToArray();
+        double scale = pages.Min(p => (p.W >= p.H ? ThumbnailWidth : ThumbnailWidth * 0.82) / p.W);
+        return pages.Select(p =>
         {
-            // Portrait pages: fix the width, let height follow.
-            width = ThumbnailWidth * 0.82;
-            height = Math.Round(width * h / w);
-        }
-        // Extremely long or thin pages get a cropped thumbnail rather than a giant bitmap.
-        return (width, Math.Clamp(height, 4, ThumbnailWidth * 3));
+            // One giant page shouldn't shrink the rest to specks.
+            double k = Math.Max(scale, ThumbnailWidth * 0.25 / Math.Max(p.W, p.H));
+            // Extremely long or thin pages get a cropped thumbnail rather than a giant bitmap.
+            return (Math.Max(4, Math.Round(p.W * k)), Math.Clamp(Math.Round(p.H * k), 4, ThumbnailWidth * 3));
+        }).ToArray();
     }
 
     private void OnThumbnailContainerContentChanging(ListViewBase sender, ContainerContentChangingEventArgs args)
