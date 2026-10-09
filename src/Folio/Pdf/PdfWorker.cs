@@ -8,6 +8,11 @@ public enum WorkPriority
     Normal = 1,
     /// <summary>Thumbnails, search, annotation scans.</summary>
     Background = 2,
+    /// <summary>
+    /// Polish such as sharper thumbnails: dequeued only when nothing else is queued, but like
+    /// everything else it runs to completion once started, so more urgent work can wait on it.
+    /// </summary>
+    Idle = 3,
 }
 
 /// <summary>
