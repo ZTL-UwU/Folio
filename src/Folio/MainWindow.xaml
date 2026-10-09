@@ -155,18 +155,9 @@
                                 </MenuFlyoutItem>
                                 <MenuFlyoutSeparator x:Name="DocumentSeparator" />
                                 <MenuFlyoutItem
-                                    x:Name="SaveItem"
-                                    Click="OnSave"
+                                    x:Name="SaveCopyItem"
+                                    Click="OnSaveCopy"
                                     KeyboardAcceleratorTextOverride="Ctrl+S"
-                                    Text="Save">
-                                    <MenuFlyoutItem.Icon>
-                                        <FontIcon Glyph="&#xE74E;" />
-                                    </MenuFlyoutItem.Icon>
-                                </MenuFlyoutItem>
-                                <MenuFlyoutItem
-                                    x:Name="SaveAsItem"
-                                    Click="OnSaveAs"
-                                    KeyboardAcceleratorTextOverride="Ctrl+Shift+S"
                                     Text="Save a copy…">
                                     <MenuFlyoutItem.Icon>
                                         <FontIcon Glyph="&#xE792;" />

@@ -982,8 +982,8 @@ public sealed unsafe partial class PdfDocument : IDisposable
                 }
                 throw;
             }
-            if (string.Equals(Path.GetFullPath(path), Path.GetFullPath(FilePath), StringComparison.OrdinalIgnoreCase))
-                IsModified = false;
+            // Like GNOME Papers, the edits count as saved once they're in a copy too.
+            IsModified = false;
         }, WorkPriority.Visible);
     }
 
@@ -1012,8 +1012,8 @@ public sealed unsafe partial class PdfDocument : IDisposable
     }
 
     /// <summary>
-    /// Carries the source file's Mark of the Web over to the saved copy. The copy replaces the
-    /// original, so without this a document from the internet would turn local once annotated.
+    /// Carries the source file's Mark of the Web over to the saved copy, so a document from the
+    /// internet doesn't turn local once annotated.
     /// </summary>
     private static void CopyZoneIdentifier(string from, string to)
     {

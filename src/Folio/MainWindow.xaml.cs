@@ -437,15 +437,15 @@ public sealed partial class MainWindow : Window
         await Viewer.CommitPendingEditsAsync();
         if (_document is not { IsModified: true }) return true;
         var dialog = Dialogs.Create(Root.XamlRoot);
-        dialog.Title = "Save changes?";
-        dialog.Content = $"“{Path.GetFileName(_document.FilePath)}” has unsaved annotations. Do you want to save them before closing?";
-        dialog.PrimaryButtonText = "Save";
+        dialog.Title = "Save changes to a copy?";
+        dialog.Content = $"“{Path.GetFileName(_document.FilePath)}” has unsaved annotations. If you don't save a copy, they will be lost.";
+        dialog.PrimaryButtonText = "Save a copy";
         dialog.SecondaryButtonText = "Don't save";
         dialog.CloseButtonText = "Cancel";
         dialog.DefaultButton = ContentDialogButton.Primary;
         var result = await dialog.ShowAsync();
         if (result == ContentDialogResult.None) return false;
-        if (result == ContentDialogResult.Primary) return await SaveAsync();
+        if (result == ContentDialogResult.Primary) return await SaveCopyAsync();
         return true;
     }
 
@@ -614,7 +614,7 @@ public sealed partial class MainWindow : Window
         AppTitleBar.IsBackButtonVisible = _settingsOpen || showingDocument && searching;
         foreach (var item in new MenuFlyoutItemBase[]
                  {
-                     DocumentSeparator, SaveItem, SaveAsItem, PrintItem, ViewSeparator, ContinuousItem, DualItem, OddLeftItem,
+                     DocumentSeparator, SaveCopyItem, PrintItem, ViewSeparator, ContinuousItem, DualItem, OddLeftItem,
                      InvertItem, RotateItem, ModeSeparator, FullscreenItem, PresentItem, InfoSeparator, ReloadItem,
                      ShowInFolderItem, PropertiesItem, CloseSeparator, CloseItem,
                  })
@@ -683,7 +683,6 @@ public sealed partial class MainWindow : Window
         OddLeftItem.IsChecked = Viewer.OddPagesLeft;
         OddLeftItem.IsEnabled = Viewer.IsDual;
         InvertItem.IsChecked = Viewer.IsInverted;
-        SaveItem.IsEnabled = _document?.IsModified == true;
         CloseItem.Text = AppState.Preferences.RememberRecent ? "Close document" : "Close window";
         FullscreenItem.Text = _fullscreen ? "Exit full screen" : "Full screen";
     }
@@ -1321,57 +1320,59 @@ public sealed partial class MainWindow : Window
 
     private void OnNewWindow(object sender, RoutedEventArgs e) => new MainWindow().Activate();
 
-    private async void OnSave(object sender, RoutedEventArgs e) => await SaveAsync();
+    private async void OnSaveCopy(object sender, RoutedEventArgs e) => await SaveCopyAsync();
 
-    private async Task<bool> SaveAsync()
+    /// <summary>
+    /// Saves the document under a new name, leaving the original untouched unless it's picked on
+    /// purpose. Like GNOME Papers, the window stays on the original, which counts as saved afterwards.
+    /// </summary>
+    private async Task<bool> SaveCopyAsync()
     {
         if (_document is null) return false;
         await Viewer.CommitPendingEditsAsync();
+        if (_document is null) return false;
+        var document = _document;
+        var picker = new FileSavePicker(AppWindow.Id)
+        {
+            SuggestedFileName = Path.GetFileNameWithoutExtension(document.FilePath) + (document.IsModified ? " (annotated)" : " (copy)"),
+            SuggestedStartLocation = PickerLocationId.DocumentsLibrary,
+        };
+        // Next to the original, unless that's a temporary folder (such as an opened attachment's).
+        string? folder = Path.GetDirectoryName(document.FilePath);
+        if (folder is not null && Directory.Exists(folder) && !IsTemporaryFolder(folder)) picker.SuggestedFolder = folder;
+        picker.FileTypeChoices.Add("PDF document", [".pdf"]);
+        var result = await picker.PickSaveFileAsync();
+        if (result is null || _document != document) return false;
+        bool replacing = string.Equals(Path.GetFullPath(result.Path), Path.GetFullPath(document.FilePath), StringComparison.OrdinalIgnoreCase);
         try
         {
             // Our own write shouldn't trigger a reload. The watcher event can arrive after a long
             // save finishes, so the quiet period runs from the end of the save as well.
-            _ignoreWatcherUntil = DateTime.MaxValue;
+            if (replacing) _ignoreWatcherUntil = DateTime.MaxValue;
             try
             {
-                await _document.SaveAsync(_document.FilePath);
+                await document.SaveAsync(result.Path);
             }
             finally
             {
-                _ignoreWatcherUntil = DateTime.UtcNow.AddSeconds(3);
+                if (replacing) _ignoreWatcherUntil = DateTime.UtcNow.AddSeconds(3);
             }
-            UpdateTitle();
-            return true;
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        {
-            ShowMessage("Unable to save", ex.Message + " Try saving a copy instead.", InfoBarSeverity.Error);
-            return false;
-        }
-    }
-
-    private async void OnSaveAs(object sender, RoutedEventArgs e)
-    {
-        if (_document is null) return;
-        await Viewer.CommitPendingEditsAsync();
-        if (_document is null) return;
-        var picker = new FileSavePicker(AppWindow.Id)
-        {
-            SuggestedFileName = Path.GetFileNameWithoutExtension(_document.FilePath) + (_document.IsModified ? " (annotated)" : " (copy)"),
-            SuggestedStartLocation = PickerLocationId.DocumentsLibrary,
-        };
-        picker.FileTypeChoices.Add("PDF document", [".pdf"]);
-        var result = await picker.PickSaveFileAsync();
-        if (result is null) return;
-        try
-        {
-            await _document.SaveAsync(result.Path);
-            ShowMessage("Copy saved", $"Saved to “{Path.GetFileName(result.Path)}”.", InfoBarSeverity.Success);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             ShowMessage("Unable to save", ex.Message, InfoBarSeverity.Error);
+            return false;
         }
+        UpdateTitle();
+        if (!replacing) ShowMessage("Copy saved", $"Saved to “{Path.GetFileName(result.Path)}”.", InfoBarSeverity.Success);
+        return true;
+    }
+
+    private static bool IsTemporaryFolder(string folder)
+    {
+        string full = Path.TrimEndingDirectorySeparator(Path.GetFullPath(folder)) + Path.DirectorySeparatorChar;
+        return new[] { Path.GetTempPath(), AppPackage.TempFolder }.Any(temp =>
+            full.StartsWith(Path.TrimEndingDirectorySeparator(Path.GetFullPath(temp)) + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase));
     }
 
     private async void OnPrint(object sender, RoutedEventArgs e)
@@ -1653,8 +1654,8 @@ public sealed partial class MainWindow : Window
         Add(VirtualKey.O, Ctrl, () => _ = PickAndOpenAsync(), true);
         Add(VirtualKey.N, Ctrl, () => new MainWindow().Activate(), true);
         Add(VirtualKey.W, Ctrl, CloseDocument, true);
-        Add(VirtualKey.S, Ctrl, () => { if (_document?.IsModified == true || Viewer.HasPendingEdits) _ = SaveAsync(); }, true);
-        Add(VirtualKey.S, Ctrl | Shift, () => OnSaveAs(this, new RoutedEventArgs()), true);
+        Add(VirtualKey.S, Ctrl, () => _ = SaveCopyAsync(), true);
+        Add(VirtualKey.S, Ctrl | Shift, () => _ = SaveCopyAsync(), true);
         Add(VirtualKey.P, Ctrl, () => OnPrint(this, new RoutedEventArgs()), true);
         Add(VirtualKey.F, Ctrl, FocusSearch, true);
         Add(VirtualKey.F3, None, () => MoveSearch(+1), true);

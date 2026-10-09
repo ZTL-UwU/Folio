@@ -103,8 +103,8 @@ internal static class Dialogs
         (string Group, (string Keys, string Action)[] Items)[] groups =
         [
             ("Documents", [
-                ("Ctrl+O", "Open a document"), ("Ctrl+N", "New window"), ("Ctrl+S", "Save annotations"),
-                ("Ctrl+Shift+S", "Save a copy"), ("Ctrl+P", "Print"), ("Ctrl+R", "Reload"),
+                ("Ctrl+O", "Open a document"), ("Ctrl+N", "New window"), ("Ctrl+S", "Save a copy"),
+                ("Ctrl+P", "Print"), ("Ctrl+R", "Reload"),
                 ("Alt+Enter", "Properties"), ("Ctrl+W", AppState.Preferences.RememberRecent ? "Close document" : "Close window"),
                 ("Ctrl+,", "Settings"),
             ]),
