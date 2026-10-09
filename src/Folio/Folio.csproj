@@ -45,6 +45,24 @@
     <AppxPackageDir>$(MSBuildProjectDirectory)\..\..\out\AppPackages\</AppxPackageDir>
     <AppxBundle>Never</AppxBundle>
   </PropertyGroup>
+  <!-- The package also registers the File Explorer thumbnail handler (see Package.appxmanifest). It's a
+       Native AOT DLL, published here for the same architecture and copied into the package root next to
+       pdfium.dll. Native AOT needs Visual Studio's C++ build tools, so the unpackaged build skips it. -->
+  <PropertyGroup Condition="'$(WindowsPackageType)' == 'MSIX'">
+    <ThumbnailsProject>$(MSBuildThisFileDirectory)..\Folio.Thumbnails\Folio.Thumbnails.csproj</ThumbnailsProject>
+    <DotNetHost>$(DOTNET_HOST_PATH)</DotNetHost>
+    <DotNetHost Condition="'$(DotNetHost)' == ''">dotnet</DotNetHost>
+  </PropertyGroup>
+  <ItemGroup Condition="'$(WindowsPackageType)' == 'MSIX'">
+    <ThumbnailsSource Include="$(ThumbnailsProject);..\Folio.Thumbnails\*.cs" />
+  </ItemGroup>
+  <Target Name="PublishThumbnails" BeforeTargets="AssignTargetPaths" Condition="'$(WindowsPackageType)' == 'MSIX'"
+          Inputs="@(ThumbnailsSource)" Outputs="$(ProjectDir)$(IntermediateOutputPath)thumbnails\Folio.Thumbnails.dll">
+    <Exec Command="&quot;$(DotNetHost)&quot; publish &quot;$(ThumbnailsProject)&quot; -c $(Configuration) -r $(RuntimeIdentifier) -o &quot;$(ProjectDir)$(IntermediateOutputPath)thumbnails&quot; -nologo" />
+    <ItemGroup>
+      <Content Include="$(ProjectDir)$(IntermediateOutputPath)thumbnails\Folio.Thumbnails.dll" Link="Folio.Thumbnails.dll" CopyToOutputDirectory="PreserveNewest" />
+    </ItemGroup>
+  </Target>
   <PropertyGroup Condition="'$(RuntimeIdentifier)' == '' and '$(Platform)' == 'ARM64'">
     <RuntimeIdentifier>win-arm64</RuntimeIdentifier>
   </PropertyGroup>

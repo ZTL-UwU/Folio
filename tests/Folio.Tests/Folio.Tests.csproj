@@ -14,6 +14,8 @@
   <ItemGroup>
     <Compile Include="..\..\src\Folio\Pdf\*.cs" Link="App\Pdf\%(Filename)%(Extension)" />
     <Compile Include="..\..\src\Folio\Services\LaunchPolicy.cs" Link="App\Services\LaunchPolicy.cs" />
+    <!-- So is the thumbnail handler, which ships as a Native AOT DLL. -->
+    <Compile Include="..\..\src\Folio.Thumbnails\*.cs" Link="Thumbnails\%(Filename)%(Extension)" />
   </ItemGroup>
   <ItemGroup>
     <Using Include="Xunit" />

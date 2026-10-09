@@ -9,6 +9,7 @@
 - **Printing** with page ranges, a **Properties** dialog, and **password-protected** documents.
 - Remembers page, zoom and view mode per document, and reloads when the file changes on disk (encrypted files reuse the session password).
 - One process per session: PDFs opened from Explorer open as new windows in the running instance.
+- **Explorer thumbnails** (Store/MSIX build): File Explorer shows the first page as the PDF's thumbnail, with a small Folio badge in the corner, while Folio is the default PDF app.
 
 Press F1 for keyboard shortcuts.
 
@@ -19,5 +20,6 @@ Press F1 for keyboard shortcuts.
 - **JavaScript** and **launch actions** are ignored. Only `http`, `https` and `mailto` links open, and never ones with a user name (`https://bank.example@evil.example/`). Link hover shows the host in ASCII to expose look-alike names.
 - **Permission flags** (no copy/print/modify) aren't enforced, as in Papers and Evince: they don't protect the content and get in the way of legitimate use.
 - **Attachments**: PDFs open in Folio; other files open in their default app after confirmation. Executables, scripts, shortcuts and installers are only saved, never opened, and types Windows parses on folder view (`.url`, `.lnk`, `.scf`, `.library-ms`, …) get `.txt` appended. Extracted files get the Mark of the Web, and aren't opened if the drive can't store it.
+- **Explorer thumbnails** skip password-protected PDFs and files over 4 GB.
 - **Size**: files up to 8 GB, up to 1,000,000 pages, attachments up to 2 GB.
 - **Screen readers** get the page number, but page text isn't exposed to UI Automation yet.

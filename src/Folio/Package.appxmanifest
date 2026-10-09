@@ -3,8 +3,12 @@
 <Package
   xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
   xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
+  xmlns:uap3="http://schemas.microsoft.com/appx/manifest/uap/windows10/3"
   xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
-  IgnorableNamespaces="uap rescap">
+  xmlns:com="http://schemas.microsoft.com/appx/manifest/com/windows10"
+  xmlns:desktop2="http://schemas.microsoft.com/appx/manifest/desktop/windows10/2"
+  xmlns:desktop5="http://schemas.microsoft.com/appx/manifest/desktop/windows10/5"
+  IgnorableNamespaces="uap uap3 rescap com desktop2 desktop5">
 
   <!-- Name and Publisher are placeholders until the app name is reserved in Partner Center
        (Product identity page); the Store build must use the values given there. -->
@@ -35,16 +39,27 @@
         <uap:SplashScreen Image="Assets\Package\SplashScreen.png" />
       </uap:VisualElements>
       <Extensions>
-        <!-- Explorer starts Folio with the file on the command line, the same as the unpackaged build. -->
-        <uap:Extension Category="windows.fileTypeAssociation">
-          <uap:FileTypeAssociation Name="pdf">
+        <!-- Explorer starts Folio with the file on the command line, the same as the unpackaged build.
+             ThumbnailTypeOverlay is the badge Explorer draws in the corner of the PDF thumbnails. -->
+        <uap3:Extension Category="windows.fileTypeAssociation">
+          <uap3:FileTypeAssociation Name="pdf" desktop5:ThumbnailTypeOverlay="Assets\Package\Square44x44Logo.png">
             <uap:SupportedFileTypes>
               <uap:FileType ContentType="application/pdf">.pdf</uap:FileType>
             </uap:SupportedFileTypes>
             <uap:DisplayName>PDF Document</uap:DisplayName>
             <uap:Logo>Assets\Package\Square44x44Logo.png</uap:Logo>
-          </uap:FileTypeAssociation>
-        </uap:Extension>
+            <desktop2:ThumbnailHandler Clsid="54e57302-4f85-47eb-8be3-76ee7e671857" />
+          </uap3:FileTypeAssociation>
+        </uap3:Extension>
+        <!-- File Explorer thumbnails for PDFs (src/Folio.Thumbnails), loaded into a COM surrogate process.
+             The Id must match ThumbnailProvider.Clsid. -->
+        <com:Extension Category="windows.comServer">
+          <com:ComServer>
+            <com:SurrogateServer DisplayName="Folio PDF Thumbnails">
+              <com:Class Id="54e57302-4f85-47eb-8be3-76ee7e671857" Path="Folio.Thumbnails.dll" ThreadingModel="Both" />
+            </com:SurrogateServer>
+          </com:ComServer>
+        </com:Extension>
       </Extensions>
     </Application>
   </Applications>

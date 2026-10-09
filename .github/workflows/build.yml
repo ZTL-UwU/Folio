@@ -79,6 +79,13 @@ jobs:
           New-Item -ItemType Directory out/msix | Out-Null
           Copy-Item out/AppPackages/*/*.msix out/msix
           if ((Get-ChildItem out/msix).Count -ne 2) { throw "Expected an x64 and an ARM64 package" }
+          # The manifest registers the Explorer thumbnail handler at this path.
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          foreach ($msix in Get-ChildItem out/msix) {
+            $zip = [IO.Compression.ZipFile]::OpenRead($msix.FullName)
+            try { if ($zip.Entries.FullName -notcontains "Folio.Thumbnails.dll") { throw "$($msix.Name) is missing Folio.Thumbnails.dll" } }
+            finally { $zip.Dispose() }
+          }
           & $makeappx.FullName bundle /d out/msix /p "out/Folio_$version.msixbundle" /bv $version /o
           if ($LASTEXITCODE) { throw "makeappx failed" }
 
