@@ -1,6 +1,6 @@
 # Features
 
-- **Start page**: recent documents as thumbnail cards; drag and drop PDFs onto the window.
+- **Start page**: recent documents as thumbnail cards, with a search box (Ctrl+F) that filters them by name or path; drag and drop PDFs onto the window.
 - **Viewer**: continuous or single-page, dual pages (optionally odd on the left), fit page / fit width / custom zoom, Ctrl+wheel and pinch zoom, rotation, night mode, full screen, presentation mode.
 - **Sidebar**: thumbnails, outline, annotations, attachments.
 - **Search**: results with snippets in the sidebar; match case, whole words; F3 / Shift+F3.
