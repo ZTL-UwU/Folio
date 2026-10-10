@@ -144,13 +144,33 @@ public sealed partial class DocumentView : UserControl
         AddHandler(PointerReleasedEvent, new PointerEventHandler(OnMiddleScrollPointerReleased), true);
         PointerCaptureLost += (_, _) => { if (_middleScrollHeld) StopMiddleScroll(); };
         LostFocus += (_, _) => { StopMiddleScroll(); StopAutoScroll(); };
-        Unloaded += (_, _) => { StopMiddleScroll(); StopAutoScroll(); };
-
+        // XamlRoot isn't a XAML element, so the garbage collector can't trace a cycle through its handler.
+        // Detach so it can't keep the view, and the window it was in, alive after closing.
         Loaded += (_, _) =>
         {
-            if (XamlRoot is not null) XamlRoot.Changed += (_, _) => RefreshRendering();
+            if (_xamlRoot is not null || XamlRoot is null) return;
+            _xamlRoot = XamlRoot;
+            _xamlRoot.Changed += OnXamlRootChanged;
+        };
+        Unloaded += (_, _) =>
+        {
+            StopMiddleScroll();
+            StopAutoScroll();
+            DetachFromXamlRoot();
         };
     }
+
+    private XamlRoot? _xamlRoot;
+
+    /// <summary>Stops listening to the window's XamlRoot. Closing a window doesn't unload its content, so it calls this.</summary>
+    public void DetachFromXamlRoot()
+    {
+        if (_xamlRoot is null) return;
+        _xamlRoot.Changed -= OnXamlRootChanged;
+        _xamlRoot = null;
+    }
+
+    private void OnXamlRootChanged(XamlRoot sender, XamlRootChangedEventArgs args) => RefreshRendering();
 
     // ---------------------------------------------------------------- public surface
 
