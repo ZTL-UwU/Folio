@@ -339,8 +339,7 @@ public sealed partial class MainWindow : Window
         _entry = null;
         Viewer.SetDocument(null);
         document.Dispose();
-        _thumbnails = [];
-        ThumbnailList.ItemsSource = null;
+        ClearThumbnails();
         OutlineTree.RootNodes.Clear();
         AttachmentList.ItemsSource = null;
         _annotationItems.Clear();
@@ -779,7 +778,7 @@ public sealed partial class MainWindow : Window
     private void BuildThumbnails()
     {
         if (_document is null) return;
-        foreach (var t in _thumbnails) t.Pending?.Cancel();
+        ClearThumbnails();
         _thumbnailRotation = Viewer.PageRotation;
         _thumbnailInverted = Viewer.IsInverted;
         var paper = new SolidColorBrush(_thumbnailInverted ? Windows.UI.Color.FromArgb(255, 30, 30, 30) : Colors.White);
@@ -792,6 +791,29 @@ public sealed partial class MainWindow : Window
         ThumbnailList.ItemsSource = _thumbnails;
         if (_sidebarOpen) SidebarColumn.Width = new GridLength(SidebarWidth());
         SyncThumbnailSelection();
+    }
+
+    /// <summary>Empties the thumbnail list and releases the previews in it.</summary>
+    private void ClearThumbnails()
+    {
+        var old = _thumbnails;
+        _thumbnails = [];
+        ThumbnailList.ItemsSource = null;
+        foreach (var t in old) ReleaseThumbnail(t);
+    }
+
+    private static void ReleaseThumbnail(ThumbnailItem item)
+    {
+        item.Pending?.Cancel();
+        SetThumbnailImage(item, null);
+    }
+
+    /// <summary>Shows <paramref name="image"/> as the preview and releases the one it replaces.</summary>
+    private static void SetThumbnailImage(ThumbnailItem item, ImageSource? image)
+    {
+        var old = item.Image;
+        item.Image = image;
+        (old as IDisposable)?.Dispose();
     }
 
     /// <summary>
@@ -819,8 +841,7 @@ public sealed partial class MainWindow : Window
         if (args.Item is not ThumbnailItem item) return;
         if (args.InRecycleQueue)
         {
-            item.Pending?.Cancel();
-            item.Image = null;
+            ReleaseThumbnail(item);
             return;
         }
         if (args.Phase == 0)
@@ -860,10 +881,17 @@ public sealed partial class MainWindow : Window
                 var region = new RectInt32(0, 0, Math.Max(1, (int)Math.Round(width * px)), Math.Max(1, (int)Math.Round(height * px)));
                 using var buffer = await document.RenderAsync(item.Index, fit * px, rotation, region, inverted, priority, cts.Token);
                 if (buffer is null || cts.IsCancellationRequested || document != _document) return;
-                item.Image = PageView.ToBitmap(buffer);
+                var image = await PageView.ToSourceAsync(buffer);
+                if (cts.IsCancellationRequested || document != _document)
+                {
+                    image.Dispose();
+                    return;
+                }
+                SetThumbnailImage(item, image);
             }
         }
-        catch (Exception ex) when (ex is OperationCanceledException or ObjectDisposedException or InvalidDataException)
+        // COMException: the upload failed, so the slot keeps its blank page (or the first pass).
+        catch (Exception ex) when (ex is OperationCanceledException or ObjectDisposedException or InvalidDataException or COMException)
         {
         }
     }
@@ -1624,7 +1652,7 @@ public sealed partial class MainWindow : Window
             using var file = new Windows.Storage.Streams.InMemoryRandomAccessStream();
             var encoder = await BitmapEncoder.CreateAsync(BitmapEncoder.PngEncoderId, file);
             encoder.SetPixelData(BitmapPixelFormat.Bgra8, BitmapAlphaMode.Ignore, (uint)buffer.Width, (uint)buffer.Height, 96, 96,
-                buffer.Data.AsSpan(0, buffer.Length).ToArray());
+                buffer.Span.ToArray());
             await encoder.FlushAsync();
             var bytes = new byte[file.Size];
             file.Seek(0);

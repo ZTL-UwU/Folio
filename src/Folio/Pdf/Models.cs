@@ -166,14 +166,50 @@ public sealed class DocumentInfo
     public bool IsEncrypted { get; init; }
 }
 
-public sealed class PixelBuffer : IDisposable
+/// <summary>
+/// BGRA pixels in native memory. Page bitmaps run to tens of megabytes; as managed arrays they'd
+/// land on the large object heap, or stay parked in a shared pool long after a render.
+/// </summary>
+public sealed unsafe class PixelBuffer : IDisposable
 {
-    public required byte[] Data { get; init; }
-    public required int Width { get; init; }
-    public required int Height { get; init; }
-    public int Length => Width * Height * 4;
+    private byte* _data;
 
-    public void Dispose() => System.Buffers.ArrayPool<byte>.Shared.Return(Data);
+    public PixelBuffer(int width, int height)
+    {
+        Width = width;
+        Height = height;
+        _data = (byte*)System.Runtime.InteropServices.NativeMemory.Alloc((nuint)width * (nuint)height * 4);
+    }
+
+    public int Width { get; }
+    public int Height { get; }
+    public int Stride => Width * 4;
+    public int Length => Stride * Height;
+
+    public byte* Pointer
+    {
+        get
+        {
+            ObjectDisposedException.ThrowIf(_data is null, this);
+            return _data;
+        }
+    }
+
+    public ReadOnlySpan<byte> Span => new(Pointer, Length);
+
+    public void Dispose()
+    {
+        Free();
+        GC.SuppressFinalize(this);
+    }
+
+    ~PixelBuffer() => Free();
+
+    private void Free()
+    {
+        System.Runtime.InteropServices.NativeMemory.Free(_data);
+        _data = null;
+    }
 }
 
 public sealed class PdfPasswordException(bool wrongPassword) : Exception(wrongPassword ? "Incorrect password" : "Password required")
