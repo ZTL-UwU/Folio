@@ -363,6 +363,10 @@ internal sealed class PageView : Canvas
         catch (InvalidDataException)
         {
         }
+        catch (COMException)
+        {
+            // The upload failed; the page keeps the bitmap it had, and the next change of scale tries again.
+        }
     }
 
     private async void RenderTiles(TileBatch batch, double pxPerPoint, double pixelScale, bool inverted, int maxW, int maxH)
@@ -373,16 +377,20 @@ internal sealed class PageView : Canvas
         try
         {
             using var buffer = await _document.RenderAsync(PageIndex, pxPerPoint, PageRotation, region, inverted, WorkPriority.Visible, batch.Cts.Token);
-            foreach (var key in batch.Keys)
+            bool IsStale() => batch.Cts.IsCancellationRequested || version != _version || Math.Abs(_tileScale - pxPerPoint) > 1e-9;
+            if (buffer is null || IsStale())
             {
-                if (_pendingTiles.TryGetValue(key, out var current) && current == batch) _pendingTiles.Remove(key);
+                ForgetBatch(batch);
+                return;
             }
-            if (buffer is null || batch.Cts.IsCancellationRequested || version != _version || Math.Abs(_tileScale - pxPerPoint) > 1e-9) return;
-            // Cut the pass into tiles, which are what's kept and dropped as the view moves.
+            // Cut the pass into tiles, which are what's kept and dropped as the view moves. The batch stays
+            // pending while they upload, so Render still cancels it if the tiles go out of view or the page
+            // stops being tiled, and doesn't start rendering the same tiles again meanwhile.
             var tiles = batch.Keys.Select(key => (Key: key, Rect: new RectInt32(key.Col * TileSize, key.Row * TileSize,
                 Math.Min(TileSize, maxW - key.Col * TileSize), Math.Min(TileSize, maxH - key.Row * TileSize)))).ToList();
             var images = await CutAsync(buffer, region, tiles.Select(t => t.Rect).ToList(), pixelScale);
-            if (batch.Cts.IsCancellationRequested || version != _version || Math.Abs(_tileScale - pxPerPoint) > 1e-9)
+            ForgetBatch(batch);
+            if (IsStale())
             {
                 foreach (var image in images) Free(image);
                 return;
@@ -407,6 +415,19 @@ internal sealed class PageView : Canvas
         }
         catch (InvalidDataException)
         {
+        }
+        catch (COMException)
+        {
+            // The upload failed. The tiles stay pending, so they're tried again once they've scrolled out of view and back.
+        }
+    }
+
+    /// <summary>Takes <paramref name="batch"/>'s tiles off the pending list, unless a newer batch has them.</summary>
+    private void ForgetBatch(TileBatch batch)
+    {
+        foreach (var key in batch.Keys)
+        {
+            if (_pendingTiles.TryGetValue(key, out var current) && current == batch) _pendingTiles.Remove(key);
         }
     }
 
@@ -486,6 +507,9 @@ internal sealed class PageView : Canvas
 
     private static unsafe void CopyPixels(PixelBuffer buffer, int x, int y, SoftwareBitmap bitmap)
     {
+        // The copy below reads raw memory, so a rectangle outside the buffer would read past its allocation.
+        if (x < 0 || y < 0 || (long)x + bitmap.PixelWidth > buffer.Width || (long)y + bitmap.PixelHeight > buffer.Height)
+            throw new ArgumentOutOfRangeException(nameof(x), "The rectangle isn't inside the buffer.");
         using var locked = bitmap.LockBuffer(BitmapBufferAccessMode.Write);
         var plane = locked.GetPlaneDescription(0);
         using var reference = locked.CreateReference();

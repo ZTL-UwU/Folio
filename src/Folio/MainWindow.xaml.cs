@@ -890,7 +890,8 @@ public sealed partial class MainWindow : Window
                 SetThumbnailImage(item, image);
             }
         }
-        catch (Exception ex) when (ex is OperationCanceledException or ObjectDisposedException or InvalidDataException)
+        // COMException: the upload failed, so the slot keeps its blank page (or the first pass).
+        catch (Exception ex) when (ex is OperationCanceledException or ObjectDisposedException or InvalidDataException or COMException)
         {
         }
     }
