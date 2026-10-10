@@ -86,28 +86,24 @@ public sealed partial class MainWindow : Window
             if (prefs.WindowMaximized) presenter.Maximize();
         }
         AppWindow.Closing += OnAppWindowClosing;
-        Closed += (_, _) => OnClosed();
-        Activated += (_, e) =>
-        {
-            if (e.WindowActivationState != WindowActivationState.Deactivated) App.LastActiveWindow = this;
-            else Viewer.StopMiddleScroll();
-        };
+        Closed += OnWindowClosed;
+        Activated += OnActivated;
         App.OpenWindows.Add(this);
 
         _searchDebounce = DispatcherQueue.CreateTimer();
         _searchDebounce.Interval = TimeSpan.FromMilliseconds(350);
         _searchDebounce.IsRepeating = false;
-        _searchDebounce.Tick += (_, _) => StartSearch(SearchBox.Text);
+        _searchDebounce.Tick += OnSearchDebounceTick;
 
         _reloadDebounce = DispatcherQueue.CreateTimer();
         _reloadDebounce.Interval = TimeSpan.FromMilliseconds(600);
         _reloadDebounce.IsRepeating = false;
-        _reloadDebounce.Tick += (_, _) => OnFileChangedOnDisk();
+        _reloadDebounce.Tick += OnReloadDebounceTick;
 
         _hintTimer = DispatcherQueue.CreateTimer();
         _hintTimer.Interval = TimeSpan.FromSeconds(2.5);
         _hintTimer.IsRepeating = false;
-        _hintTimer.Tick += (_, _) => FullscreenHint.Opacity = 0;
+        _hintTimer.Tick += OnHintTimerTick;
 
         SearchResultList.ItemsSource = _searchItems;
         AnnotationList.ItemsSource = _annotationItems;
@@ -146,7 +142,7 @@ public sealed partial class MainWindow : Window
         SearchBox.AddHandler(UIElement.KeyDownEvent, new KeyEventHandler(OnSearchKeyDown), true);
         RecentSearchBox.AddHandler(UIElement.KeyDownEvent, new KeyEventHandler(OnRecentSearchKeyDown), true);
         SetupAccelerators();
-        // AppState is static: unsubscribed in OnClosed, or it would keep every closed window alive.
+        // AppState is static: unsubscribed in OnWindowClosed, or it would keep every closed window alive.
         _recentChanged = (_, _) => DispatcherQueue.TryEnqueue(RefreshRecent);
         AppState.RecentChanged += _recentChanged;
         RefreshRecent();
@@ -476,20 +472,37 @@ public sealed partial class MainWindow : Window
         Close();
     }
 
+    private void OnActivated(object sender, WindowActivatedEventArgs e)
+    {
+        if (e.WindowActivationState != WindowActivationState.Deactivated) App.LastActiveWindow = this;
+        else Viewer.StopMiddleScroll();
+    }
+
     /// <summary>Releases everything that would otherwise outlive the window.</summary>
-    private void OnClosed()
+    private void OnWindowClosed(object sender, WindowEventArgs e)
     {
         AppState.RecentChanged -= _recentChanged;
         App.OpenWindows.Remove(this);
         if (App.LastActiveWindow == this) App.LastActiveWindow = null;
+        // The window, its AppWindow and the timers aren't XAML elements, so the garbage collector can't trace
+        // a cycle through their handlers. Unsubscribe so they can't keep the closed window alive.
+        Closed -= OnWindowClosed;
+        Activated -= OnActivated;
+        AppWindow.Closing -= OnAppWindowClosing;
         _searchDebounce.Stop();
+        _searchDebounce.Tick -= OnSearchDebounceTick;
         _reloadDebounce.Stop();
+        _reloadDebounce.Tick -= OnReloadDebounceTick;
         _hintTimer.Stop();
+        _hintTimer.Tick -= OnHintTimerTick;
         _searchCts?.Cancel();
         _annotationScanCts?.Cancel();
         _watcher?.Dispose();
         _watcher = null;
-        foreach (var t in _thumbnails) t.Pending?.Cancel();
+        // Page and thumbnail bitmaps are only freed when released, not when the window is collected.
+        Viewer.SetDocument(null);
+        Viewer.DetachFromXamlRoot();
+        ClearThumbnails();
         _document?.Dispose();
         _document = null;
         _password = null;
@@ -498,7 +511,14 @@ public sealed partial class MainWindow : Window
         _attachmentFolders.Clear();
         // The process may exit with this window; finish writing the position saved while closing.
         AppState.Flush();
+        // WinUI keeps the title bar's header content alive after the window closes, and the Click handlers
+        // in it lead back here, so the whole window would never be collected. Detaching the header frees it.
+        AppTitleBar.RightHeader = null;
     }
+
+    private void OnSearchDebounceTick(DispatcherQueueTimer sender, object args) => StartSearch(SearchBox.Text);
+    private void OnReloadDebounceTick(DispatcherQueueTimer sender, object args) => OnFileChangedOnDisk();
+    private void OnHintTimerTick(DispatcherQueueTimer sender, object args) => FullscreenHint.Opacity = 0;
 
     /// <summary>Takes over a folder of extracted attachments, deleting it when this window closes.</summary>
     internal void AdoptAttachmentFolder(string dir) => _attachmentFolders.Add(dir);
