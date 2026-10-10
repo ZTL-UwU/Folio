@@ -1,4 +1,3 @@
-using System.Buffers;
 using System.Globalization;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
@@ -252,34 +251,31 @@ public sealed unsafe partial class PdfDocument : IDisposable
             double pw = quarter % 2 == 0 ? size.Width : size.Height, ph = quarter % 2 == 0 ? size.Height : size.Width;
             int sizeX = (int)Math.Round(pw * scale), sizeY = (int)Math.Round(ph * scale);
 
-            int stride = region.Width * 4;
-            var data = ArrayPool<byte>.Shared.Rent(stride * region.Height);
+            var buffer = new PixelBuffer(region.Width, region.Height);
             bool done = false;
             try
             {
-                fixed (byte* p = data)
+                byte* p = buffer.Pointer;
+                IntPtr bitmap = Native.FPDFBitmap_CreateEx(region.Width, region.Height, Native.FPDFBitmap_BGRA, p, buffer.Stride);
+                if (bitmap == IntPtr.Zero) return null;
+                try
                 {
-                    IntPtr bitmap = Native.FPDFBitmap_CreateEx(region.Width, region.Height, Native.FPDFBitmap_BGRA, p, stride);
-                    if (bitmap == IntPtr.Zero) return null;
-                    try
-                    {
-                        Native.FPDFBitmap_FillRect(bitmap, 0, 0, region.Width, region.Height, 0xFFFFFFFF);
-                        RenderProgressively(bitmap, page, -region.X, -region.Y, sizeX, sizeY, quarter, token);
-                        // Form fields are only drawn by FFLDraw.
-                        if (_form != IntPtr.Zero) Native.FPDF_FFLDraw(_form, bitmap, page, -region.X, -region.Y, sizeX, sizeY, quarter, 0);
-                    }
-                    finally
-                    {
-                        Native.FPDFBitmap_Destroy(bitmap);
-                    }
-                    if (invert) Invert(p, stride * region.Height);
+                    Native.FPDFBitmap_FillRect(bitmap, 0, 0, region.Width, region.Height, 0xFFFFFFFF);
+                    RenderProgressively(bitmap, page, -region.X, -region.Y, sizeX, sizeY, quarter, token);
+                    // Form fields are only drawn by FFLDraw.
+                    if (_form != IntPtr.Zero) Native.FPDF_FFLDraw(_form, bitmap, page, -region.X, -region.Y, sizeX, sizeY, quarter, 0);
                 }
+                finally
+                {
+                    Native.FPDFBitmap_Destroy(bitmap);
+                }
+                if (invert) Invert(p, buffer.Length);
                 done = true;
-                return new PixelBuffer { Data = data, Width = region.Width, Height = region.Height };
+                return buffer;
             }
             finally
             {
-                if (!done) ArrayPool<byte>.Shared.Return(data);
+                if (!done) buffer.Dispose();
             }
         }, priority, token);
     }

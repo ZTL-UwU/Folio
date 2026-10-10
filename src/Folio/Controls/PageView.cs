@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Numerics;
+using System.Runtime.InteropServices;
 using System.Runtime.InteropServices.WindowsRuntime;
 using System.Text;
 using Folio.Pdf;
@@ -14,6 +15,8 @@ using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Imaging;
 using Windows.Foundation;
 using Windows.Graphics;
+using Windows.Graphics.Imaging;
+using WinRT;
 
 namespace Folio.Controls;
 
@@ -137,7 +140,7 @@ internal sealed class PageView : Canvas
         if (rotation != PageRotation)
         {
             // Old bitmaps have the wrong orientation; drop them.
-            _base.Source = null;
+            Free(_base);
             ClearTiles();
             _baseScale = 0;
         }
@@ -265,8 +268,9 @@ internal sealed class PageView : Canvas
         {
             if (key.Col < c0 - 1 || key.Col > c1 + 1 || key.Row < r0 - 1 || key.Row > r1 + 1)
             {
-                _tiles.Children.Remove(_tileImages[key]);
-                _tileImages.Remove(key);
+                _tileImages.Remove(key, out var image);
+                _tiles.Children.Remove(image);
+                Free(image!);
             }
         }
         // Batches still partly in view finish; ones that scrolled away entirely stop.
@@ -337,10 +341,18 @@ internal sealed class PageView : Canvas
             using var buffer = await _document.RenderAsync(PageIndex, scale, PageRotation, region, inverted,
                 isVisible ? WorkPriority.Visible : WorkPriority.Normal, cts.Token);
             if (buffer is null || cts.IsCancellationRequested || version != _version) return;
+            var source = await ToSourceAsync(buffer);
+            if (cts.IsCancellationRequested || version != _version)
+            {
+                source.Dispose();
+                return;
+            }
             // Size the image to its exact pixel dimensions so it maps 1:1 onto the screen.
             _base.Width = buffer.Width * LayoutScale / scale;
             _base.Height = buffer.Height * LayoutScale / scale;
-            _base.Source = ToBitmap(buffer);
+            var old = _base.Source;
+            _base.Source = source;
+            (old as IDisposable)?.Dispose();
         }
         catch (OperationCanceledException)
         {
@@ -367,19 +379,22 @@ internal sealed class PageView : Canvas
             }
             if (buffer is null || batch.Cts.IsCancellationRequested || version != _version || Math.Abs(_tileScale - pxPerPoint) > 1e-9) return;
             // Cut the pass into tiles, which are what's kept and dropped as the view moves.
-            foreach (var key in batch.Keys)
+            var tiles = batch.Keys.Select(key => (Key: key, Rect: new RectInt32(key.Col * TileSize, key.Row * TileSize,
+                Math.Min(TileSize, maxW - key.Col * TileSize), Math.Min(TileSize, maxH - key.Row * TileSize)))).ToList();
+            var images = await CutAsync(buffer, region, tiles.Select(t => t.Rect).ToList(), pixelScale);
+            if (batch.Cts.IsCancellationRequested || version != _version || Math.Abs(_tileScale - pxPerPoint) > 1e-9)
             {
-                var tile = new RectInt32(key.Col * TileSize, key.Row * TileSize, Math.Min(TileSize, maxW - key.Col * TileSize), Math.Min(TileSize, maxH - key.Row * TileSize));
-                var image = new Image
+                foreach (var image in images) Free(image);
+                return;
+            }
+            for (int i = 0; i < tiles.Count; i++)
+            {
+                var (key, image) = (tiles[i].Key, images[i]);
+                if (_tileImages.Remove(key, out var old))
                 {
-                    Source = ToBitmap(buffer, tile.X - region.X, tile.Y - region.Y, tile.Width, tile.Height),
-                    Stretch = Stretch.Fill,
-                    Width = tile.Width / pixelScale,
-                    Height = tile.Height / pixelScale,
-                };
-                SetLeft(image, tile.X / pixelScale);
-                SetTop(image, tile.Y / pixelScale);
-                if (_tileImages.Remove(key, out var old)) _tiles.Children.Remove(old);
+                    _tiles.Children.Remove(old);
+                    Free(old);
+                }
                 _tileImages[key] = image;
                 _tiles.Children.Add(image);
             }
@@ -411,32 +426,133 @@ internal sealed class PageView : Canvas
     {
         CancelPendingTiles();
         _tileImages.Clear();
-        _tiles.Children.Clear();
+        Clear(_tiles);
     }
 
     public void Release()
     {
         _baseCts?.Cancel();
         ClearTiles();
-        _base.Source = null;
+        Free(_base);
     }
 
-    internal static WriteableBitmap ToBitmap(PixelBuffer buffer) => ToBitmap(buffer, 0, 0, buffer.Width, buffer.Height);
-
-    /// <summary>Copies the <paramref name="width"/> x <paramref name="height"/> pixels at (<paramref name="x"/>, <paramref name="y"/>) into a bitmap.</summary>
-    internal static WriteableBitmap ToBitmap(PixelBuffer buffer, int x, int y, int width, int height)
+    internal static WriteableBitmap ToBitmap(PixelBuffer buffer)
     {
-        var bitmap = new WriteableBitmap(width, height);
-        int stride = buffer.Width * 4;
-        using (var stream = bitmap.PixelBuffer.AsStream())
-        {
-            if (x == 0 && width == buffer.Width)
-                stream.Write(buffer.Data, y * stride, height * stride);
-            else
-                for (int row = 0; row < height; row++) stream.Write(buffer.Data, (y + row) * stride + x * 4, width * 4);
-        }
+        var bitmap = new WriteableBitmap(buffer.Width, buffer.Height);
+        using (var stream = bitmap.PixelBuffer.AsStream()) stream.Write(buffer.Span);
         bitmap.Invalidate();
         return bitmap;
+    }
+
+    internal static Task<SoftwareBitmapSource> ToSourceAsync(PixelBuffer buffer) => ToSourceAsync(buffer, 0, 0, buffer.Width, buffer.Height);
+
+    /// <summary>
+    /// Copies the <paramref name="width"/> x <paramref name="height"/> pixels at (<paramref name="x"/>, <paramref name="y"/>)
+    /// into a bitmap for an <see cref="Image"/>. Unlike a WriteableBitmap, it keeps no copy of the pixels in
+    /// system memory once they're on the GPU, and disposing it releases it right away rather than whenever
+    /// the garbage collector gets to its wrapper, which with a small managed heap can take a long time.
+    /// <paramref name="buffer"/> has to stay alive until this completes. Call it on the UI thread.
+    /// </summary>
+    internal static async Task<SoftwareBitmapSource> ToSourceAsync(PixelBuffer buffer, int x, int y, int width, int height)
+    {
+        // Filling a new bitmap touches fresh memory, which took up to several milliseconds a page on
+        // the UI thread; a background thread does that, and only the upload starts here.
+        using var bitmap = await Task.Run(() =>
+        {
+            var bitmap = new SoftwareBitmap(BitmapPixelFormat.Bgra8, width, height, BitmapAlphaMode.Premultiplied);
+            try
+            {
+                CopyPixels(buffer, x, y, bitmap);
+                return bitmap;
+            }
+            catch
+            {
+                bitmap.Dispose();
+                throw;
+            }
+        });
+        var source = new SoftwareBitmapSource();
+        try
+        {
+            await source.SetBitmapAsync(bitmap);
+            return source;
+        }
+        catch
+        {
+            source.Dispose();
+            throw;
+        }
+    }
+
+    private static unsafe void CopyPixels(PixelBuffer buffer, int x, int y, SoftwareBitmap bitmap)
+    {
+        using var locked = bitmap.LockBuffer(BitmapBufferAccessMode.Write);
+        var plane = locked.GetPlaneDescription(0);
+        using var reference = locked.CreateReference();
+        // IMemoryBufferByteAccess, called through its vtable: built-in COM interop is off in trimmed apps.
+        var iid = new Guid("5b0d3235-4dba-4d44-865e-8f1d0e4fd04d");
+        Marshal.ThrowExceptionForHR(Marshal.QueryInterface(((IWinRTObject)reference).NativeObject.ThisPtr, in iid, out IntPtr access));
+        try
+        {
+            byte* target;
+            uint capacity;
+            var getBuffer = (delegate* unmanaged[Stdcall]<IntPtr, byte**, uint*, int>)(*(void***)access)[3];
+            Marshal.ThrowExceptionForHR(getBuffer(access, &target, &capacity));
+            int rowBytes = bitmap.PixelWidth * 4;
+            if ((long)plane.StartIndex + (long)plane.Stride * (bitmap.PixelHeight - 1) + rowBytes > capacity) throw new InvalidOperationException("The bitmap buffer is too small.");
+            byte* from = buffer.Pointer + (long)y * buffer.Stride + x * 4;
+            for (int row = 0; row < bitmap.PixelHeight; row++)
+                Buffer.MemoryCopy(from + (long)row * buffer.Stride, target + plane.StartIndex + (long)row * plane.Stride, rowBytes, rowBytes);
+        }
+        finally
+        {
+            Marshal.Release(access);
+        }
+    }
+
+    /// <summary>
+    /// Cuts <paramref name="pieces"/> out of a render of <paramref name="region"/> (both in pixels) into images
+    /// placed at <paramref name="pixelScale"/> pixels per layout DIP.
+    /// </summary>
+    private static async Task<Image[]> CutAsync(PixelBuffer buffer, RectInt32 region, IReadOnlyList<RectInt32> pieces, double pixelScale)
+    {
+        var uploads = pieces.Select(p => ToSourceAsync(buffer, p.X - region.X, p.Y - region.Y, p.Width, p.Height)).ToArray();
+        try
+        {
+            await Task.WhenAll(uploads);
+        }
+        catch
+        {
+            foreach (var upload in uploads)
+            {
+                if (upload.IsCompletedSuccessfully) upload.Result.Dispose();
+            }
+            throw;
+        }
+        var images = new Image[pieces.Count];
+        for (int i = 0; i < images.Length; i++)
+        {
+            var p = pieces[i];
+            images[i] = new Image { Source = uploads[i].Result, Stretch = Stretch.Fill, Width = p.Width / pixelScale, Height = p.Height / pixelScale };
+            SetLeft(images[i], p.X / pixelScale);
+            SetTop(images[i], p.Y / pixelScale);
+        }
+        return images;
+    }
+
+    /// <summary>Takes the bitmap off <paramref name="image"/> and releases it.</summary>
+    private static void Free(Image image)
+    {
+        var source = image.Source;
+        image.Source = null;
+        (source as IDisposable)?.Dispose();
+    }
+
+    /// <summary>Removes the images in <paramref name="canvas"/> and releases their bitmaps.</summary>
+    private static void Clear(Canvas canvas)
+    {
+        foreach (var image in canvas.Children.OfType<Image>()) Free(image);
+        canvas.Children.Clear();
     }
 
     // ---------------------------------------------------------------- overlay
