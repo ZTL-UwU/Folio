@@ -7,6 +7,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
+using Microsoft.UI.Xaml.Media.Animation;
 using Microsoft.UI.Xaml.Media.Imaging;
 using Microsoft.Windows.Storage.Pickers;
 using Windows.Foundation;
@@ -310,7 +311,18 @@ public sealed partial class PrintDialog : ContentDialog
     {
         bool open = MoreContent.Visibility != Visibility.Visible;
         MoreContent.Visibility = open ? Visibility.Visible : Visibility.Collapsed;
-        MoreChevron.Glyph = open ? "\uE70E" : "\uE70D";
+        // Turns the chevron up or down, quicker than its own animation would.
+        var turn = new DoubleAnimation
+        {
+            To = open ? 180 : 0,
+            Duration = TimeSpan.FromMilliseconds(150),
+            EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut },
+        };
+        Storyboard.SetTarget(turn, MoreChevronRotation);
+        Storyboard.SetTargetProperty(turn, nameof(RotateTransform.Angle));
+        var storyboard = new Storyboard();
+        storyboard.Children.Add(turn);
+        storyboard.Begin();
     }
 
     private void OnRangeChanged(object sender, TextChangedEventArgs e) => Relayout();
