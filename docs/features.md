@@ -6,7 +6,8 @@
 - **Search**: results with snippets in the sidebar; match case, whole words; F3 / Shift+F3.
 - **Text**: select, copy, double-click a word; internal and web links.
 - **Annotations**: five highlight colors and sticky notes; edit, delete, and save to a copy of the PDF (Ctrl+S) as an incremental update, leaving the original bytes (and signatures) intact.
-- **Printing** with page ranges, a **Properties** dialog, and **password-protected** documents.
+- **Printing** from its own dialog with a live preview: page ranges, odd or even pages, copies, several pages per sheet, scaling, paper size, color, two-sided, and the printer's own settings. Pages go to the printer as vector output, so text prints sharp; Ctrl+Shift+P uses the Windows print dialog instead.
+- A **Properties** dialog, and **password-protected** documents.
 - Remembers page, zoom and view mode per document, and reloads when the file changes on disk (encrypted files reuse the session password).
 - One process per session: PDFs opened from Explorer open as new windows in the running instance.
 - **Explorer thumbnails** (Store/MSIX build): File Explorer shows the first page as the PDF's thumbnail, with a small Folio badge in the corner, while Folio is the default PDF app.

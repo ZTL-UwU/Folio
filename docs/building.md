@@ -25,7 +25,8 @@ To try a build as your PDF app, measure performance or rebuild the icon, see [To
 | `src/Folio/Controls/DocumentView.cs` | Virtualized, zoomable page surface (pages laid out at 100%; ScrollViewer zoom is the zoom level), selection, links, annotation flyouts |
 | `src/Folio/Controls/PageView.cs` | One page: bitmap, zoomed-in tiles, highlight overlay |
 | `src/Folio/MainWindow.xaml` | Title bar, sidebar, start page |
-| `src/Folio/Services` | Persisted state, printing, single-instance handoff, link and attachment policy |
+| `src/Folio/Printing`, `PrintDialog.xaml` | Print dialog, page layout on sheets (unit tested), printers and GDI print jobs |
+| `src/Folio/Services` | Persisted state, the Windows print dialog, single-instance handoff, link and attachment policy |
 | `src/Folio/Package.appxmanifest`, `Assets/Package` | MSIX manifest and logos |
 | `src/Folio/Program.cs` | Entry point; forwards files to a running instance |
 | `src/Folio.Thumbnails` | File Explorer thumbnail handler (Native AOT COM DLL, MSIX build only) |

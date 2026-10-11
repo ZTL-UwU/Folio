@@ -52,6 +52,8 @@ internal static unsafe partial class Native
     private const string Lib = "pdfium";
 
     public const int FPDF_ANNOT = 0x01;
+    public const int FPDF_GRAYSCALE = 0x08;
+    public const int FPDF_PRINTING = 0x800;
 
     public const int FPDFBitmap_BGRA = 4;
 
@@ -76,6 +78,7 @@ internal static unsafe partial class Native
     public const int FPDF_ANNOT_STAMP = 13;
     public const int FPDF_ANNOT_INK = 15;
     public const int FPDF_ANNOT_FILEATTACHMENT = 17;
+    public const int FPDF_ANNOT_WIDGET = 20;
 
     public const int FPDFANNOT_COLORTYPE_Color = 0;
 
@@ -104,6 +107,8 @@ internal static unsafe partial class Native
     /// <summary>Starts a render that asks <paramref name="pause"/> whether to stop between steps. Finish with <see cref="FPDF_RenderPage_Close"/>.</summary>
     [LibraryImport(Lib)] public static partial int FPDF_RenderPageBitmap_Start(IntPtr bitmap, IntPtr page, int startX, int startY, int sizeX, int sizeY, int rotate, int flags, IFSDK_PAUSE* pause);
     [LibraryImport(Lib)] public static partial void FPDF_RenderPage_Close(IntPtr page);
+    /// <summary>Draws a page onto a GDI device context, such as a printer's, as vector output where it can.</summary>
+    [LibraryImport(Lib)] public static partial void FPDF_RenderPage(IntPtr dc, IntPtr page, int startX, int startY, int sizeX, int sizeY, int rotate, int flags);
 
     /// <summary>
     /// Size of the zeroed block passed as FPDF_FORMFILLINFO. Only <c>version</c> is set; every

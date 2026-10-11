@@ -77,6 +77,13 @@
                 <Setter Property="Foreground" Value="{ThemeResource SystemFillColorCriticalBrush}" />
             </Style>
 
+            <Style
+                x:Key="CriticalCaptionTextBlockStyle"
+                BasedOn="{StaticResource CaptionTextBlockStyle}"
+                TargetType="TextBlock">
+                <Setter Property="Foreground" Value="{ThemeResource SystemFillColorCriticalBrush}" />
+            </Style>
+
             <Style x:Key="CardBorderStyle" TargetType="Border">
                 <Setter Property="Background" Value="{ThemeResource CardBackgroundFillColorDefaultBrush}" />
                 <Setter Property="BorderBrush" Value="{ThemeResource CardStrokeColorDefaultBrush}" />
