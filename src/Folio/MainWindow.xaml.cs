@@ -1620,6 +1620,19 @@ public sealed partial class MainWindow : Window
         RecentNoMatches.Visibility = _recentItems.Count > 0 && matches.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
     }
 
+    /// <summary>Smallest card slot, margin included; spare row width is shared out between the columns.</summary>
+    private const double RecentCardMinWidth = 176;
+
+    private void OnRecentGridSizeChanged(object sender, SizeChangedEventArgs e)
+    {
+        if (RecentGrid.ItemsPanelRoot is not ItemsWrapGrid panel) return;
+        double available = e.NewSize.Width - RecentGrid.Padding.Left - RecentGrid.Padding.Right;
+        if (available <= 0) return;
+        int columns = Math.Max(1, (int)(available / RecentCardMinWidth));
+        // Rounded down so sub-pixel layout rounding can't push the last column onto the next row.
+        panel.ItemWidth = Math.Floor(available / columns);
+    }
+
     private void OnRecentSearchTextChanged(AutoSuggestBox sender, AutoSuggestBoxTextChangedEventArgs args) => FilterRecent();
 
     // Enter opens the first match.
