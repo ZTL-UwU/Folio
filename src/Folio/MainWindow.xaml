@@ -377,7 +377,14 @@
                 IsItemClickEnabled="True"
                 ItemClick="OnRecentClick"
                 SelectionMode="None"
+                SizeChanged="OnRecentGridSizeChanged"
                 Visibility="Collapsed">
+                <!--  Item width is set on resize so the columns stretch to fill the row instead of leaving a gap on the right  -->
+                <GridView.ItemsPanel>
+                    <ItemsPanelTemplate>
+                        <ItemsWrapGrid Orientation="Horizontal" />
+                    </ItemsPanelTemplate>
+                </GridView.ItemsPanel>
                 <!--  Entrance only: the default add/delete and reorder transitions make cards slide around while the search filters them  -->
                 <GridView.ItemContainerTransitions>
                     <TransitionCollection>
@@ -387,42 +394,47 @@
                 <GridView.ItemContainerStyle>
                     <Style BasedOn="{StaticResource DefaultGridViewItemStyle}" TargetType="GridViewItem">
                         <Setter Property="Margin" Value="4" />
+                        <Setter Property="HorizontalContentAlignment" Value="Stretch" />
                     </Style>
                 </GridView.ItemContainerStyle>
                 <GridView.ItemTemplate>
                     <DataTemplate x:DataType="local:RecentItem">
                         <Grid
-                            Width="168"
                             Padding="8,8,8,10"
                             RightTapped="OnRecentRightTapped"
                             RowSpacing="8">
                             <Grid.RowDefinitions>
-                                <RowDefinition Height="212" />
+                                <RowDefinition Height="Auto" />
                                 <RowDefinition Height="Auto" />
                             </Grid.RowDefinitions>
-                            <!--  Same rounded-fill hairline as the sidebar thumbnails: a stroke washes out over the paper at the corners  -->
-                            <Border
-                                Padding="1"
-                                HorizontalAlignment="Center"
-                                VerticalAlignment="Bottom"
-                                Background="{ThemeResource CardStrokeColorDefaultBrush}"
-                                CornerRadius="5">
-                                <Border Background="White" CornerRadius="4">
-                                    <Grid>
-                                        <FontIcon
-                                            Margin="40,60"
-                                            FontSize="40"
-                                            Foreground="#9E9E9E"
-                                            Glyph="&#xE8A5;"
-                                            Visibility="{x:Bind PlaceholderVisibility, Mode=OneWay}" />
-                                        <Image
-                                            MaxWidth="150"
-                                            MaxHeight="210"
-                                            Source="{x:Bind Thumbnail, Mode=OneWay}"
-                                            Stretch="Uniform" />
-                                    </Grid>
-                                </Border>
-                            </Border>
+                            <!--  Scales the thumbnail with the card width; the stored thumbnails are 300px wide, so there is room to grow  -->
+                            <Viewbox>
+                                <Grid Width="152" Height="212">
+                                    <!--  Same rounded-fill hairline as the sidebar thumbnails: a stroke washes out over the paper at the corners  -->
+                                    <Border
+                                        Padding="1"
+                                        HorizontalAlignment="Center"
+                                        VerticalAlignment="Bottom"
+                                        Background="{ThemeResource CardStrokeColorDefaultBrush}"
+                                        CornerRadius="5">
+                                        <Border Background="White" CornerRadius="4">
+                                            <Grid>
+                                                <FontIcon
+                                                    Margin="40,60"
+                                                    FontSize="40"
+                                                    Foreground="#9E9E9E"
+                                                    Glyph="&#xE8A5;"
+                                                    Visibility="{x:Bind PlaceholderVisibility, Mode=OneWay}" />
+                                                <Image
+                                                    MaxWidth="150"
+                                                    MaxHeight="210"
+                                                    Source="{x:Bind Thumbnail, Mode=OneWay}"
+                                                    Stretch="Uniform" />
+                                            </Grid>
+                                        </Border>
+                                    </Border>
+                                </Grid>
+                            </Viewbox>
                             <StackPanel Grid.Row="1" Spacing="1">
                                 <!--  The type-ramp styles wrap, which would cut the name at its first word break  -->
                                 <TextBlock
