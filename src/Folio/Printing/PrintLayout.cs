@@ -5,7 +5,10 @@ namespace Folio.Printing;
 
 public enum SheetOrientation
 {
-    /// <summary>Each sheet follows its pages: landscape pages come out on sideways paper.</summary>
+    /// <summary>
+    /// Each sheet takes the orientation that suits its pages: with one page to a sheet, the page's own
+    /// (landscape pages come out on sideways paper); with several, whichever holds them larger.
+    /// </summary>
     Automatic,
     Portrait,
     Landscape,
@@ -13,9 +16,9 @@ public enum SheetOrientation
 
 public enum PrintScaling
 {
-    /// <summary>Scale pages up or down to fill the printable area.</summary>
+    /// <summary>Scale pages up or down to fill the printable area, or their cell when several share a sheet.</summary>
     Fit,
-    /// <summary>Scale down pages that don't fit, print the others at their true size.</summary>
+    /// <summary>Scale down pages that don't fit the printable area (or their cell), print the others at their true size.</summary>
     ShrinkOversized,
     ActualSize,
     Custom,
@@ -162,6 +165,17 @@ public static class PrintLayout
     /// usually print landscape, so its top runs along the paper's left edge.
     /// </summary>
     public static Rect ToPaper(Rect rect, double sheetWidth) => new(rect.Y, sheetWidth - rect.X - rect.Width, rect.Height, rect.Width);
+
+    /// <summary>
+    /// Where a page goes on the paper as it goes through the printer, in paper points, and the
+    /// clockwise quarter turns to draw it with. On a sheet turned from the paper (see <see cref="ToPaper"/>)
+    /// the page turns with the sheet, a quarter counterclockwise: three quarters clockwise.
+    /// </summary>
+    public static (Rect Bounds, Rect Clip, int Quarter) OnPaper(PrintSheet sheet, PagePlacement placement, PaperMetrics paper)
+    {
+        if (sheet.Paper.IsLandscape == paper.IsLandscape) return (placement.Bounds, placement.Clip, 0);
+        return (ToPaper(placement.Bounds, sheet.Paper.Width), ToPaper(placement.Clip, sheet.Paper.Width), 3);
+    }
 
     /// <summary>Lays out <paramref name="pages"/> (zero-based indexes into <paramref name="pageSizes"/>, in points) on sheets.</summary>
     public static List<PrintSheet> Layout(IReadOnlyList<int> pages, IReadOnlyList<Size> pageSizes, PaperMetrics paper, LayoutOptions options)

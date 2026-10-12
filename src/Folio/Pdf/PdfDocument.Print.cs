@@ -23,14 +23,16 @@ public sealed unsafe partial class PdfDocument
         if (index < 0 || index >= PageCount || bounds.Width <= 0 || bounds.Height <= 0) return;
         IntPtr page = GetPage(index);
         int flags = Native.FPDF_PRINTING | (annotations ? Native.FPDF_ANNOT : 0) | (grayscale ? Native.FPDF_GRAYSCALE : 0);
-        if (asImage || (annotations && HasFormFields(page)))
-        {
-            DrawAsImage(dc, page, bounds, quarter, clip, deviceDpi, flags, annotations, grayscale);
-            return;
-        }
+        // Whatever either path changes on the device context (clip, stretch mode, brush origin) is
+        // undone before the next page on the sheet is drawn.
         int saved = SaveDC(dc);
         try
         {
+            if (asImage || (annotations && HasFormFields(page)))
+            {
+                DrawAsImage(dc, page, bounds, quarter, clip, deviceDpi, flags);
+                return;
+            }
             IntersectClipRect(dc, clip.X, clip.Y, clip.X + clip.Width, clip.Y + clip.Height);
             Native.FPDF_RenderPage(dc, page, bounds.X, bounds.Y, bounds.Width, bounds.Height, quarter, flags);
         }
@@ -55,7 +57,7 @@ public sealed unsafe partial class PdfDocument
         return false;
     }
 
-    private void DrawAsImage(IntPtr dc, IntPtr page, RectInt32 bounds, int quarter, RectInt32 clip, int deviceDpi, int flags, bool annotations, bool grayscale)
+    private void DrawAsImage(IntPtr dc, IntPtr page, RectInt32 bounds, int quarter, RectInt32 clip, int deviceDpi, int flags)
     {
         // Only the part of the page that's printed.
         int left = Math.Max(bounds.X, clip.X), top = Math.Max(bounds.Y, clip.Y);
@@ -73,15 +75,12 @@ public sealed unsafe partial class PdfDocument
         if (bitmap == IntPtr.Zero) throw new InvalidDataException("There isn't enough memory to print the page.");
         try
         {
-            Native.FPDFBitmap_FillRect(bitmap, 0, 0, width, height, 0xFFFFFFFF);
-            RenderProgressively(bitmap, page, x, y, sizeX, sizeY, quarter, flags, CancellationToken.None);
-            if (_form != IntPtr.Zero && annotations) Native.FPDF_FFLDraw(_form, bitmap, page, x, y, sizeX, sizeY, quarter, flags);
+            RenderOnto(bitmap, p, width, height, page, x, y, sizeX, sizeY, quarter, flags, CancellationToken.None);
         }
         finally
         {
             Native.FPDFBitmap_Destroy(bitmap);
         }
-        if (grayscale) ToGray(p, buffer.Length);
 
         var info = new BITMAPINFOHEADER
         {
@@ -98,7 +97,7 @@ public sealed unsafe partial class PdfDocument
     }
 
     /// <summary>Turns BGRA pixels grey, by perceived brightness.</summary>
-    internal static void ToGray(byte* p, int length)
+    private static void ToGray(byte* p, int length)
     {
         for (int i = 0; i < length; i += 4)
         {

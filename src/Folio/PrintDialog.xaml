@@ -301,13 +301,7 @@
                             <ComboBox
                                 x:Name="ScaleBox"
                                 Header="Scale"
-                                SelectedIndex="0"
-                                SelectionChanged="OnScaleChanged">
-                                <x:String>Fit to printable area</x:String>
-                                <x:String>Shrink oversized pages</x:String>
-                                <x:String>Actual size</x:String>
-                                <x:String>Custom</x:String>
-                            </ComboBox>
+                                SelectionChanged="OnScaleChanged" />
                             <NumberBox
                                 x:Name="ScalePercentBox"
                                 AutomationProperties.Name="Scale in percent"
@@ -323,12 +317,7 @@
                         <ComboBox
                             x:Name="SubsetBox"
                             Header="Include"
-                            SelectedIndex="0"
-                            SelectionChanged="OnLayoutChanged">
-                            <x:String>All pages in range</x:String>
-                            <x:String>Odd pages only</x:String>
-                            <x:String>Even pages only</x:String>
-                        </ComboBox>
+                            SelectionChanged="OnLayoutChanged" />
                         <StackPanel>
                             <CheckBox
                                 x:Name="ReverseBox"

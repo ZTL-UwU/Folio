@@ -236,10 +236,11 @@ public sealed unsafe partial class PdfDocument : IDisposable
     /// <paramref name="region"/> is expressed in device pixels of the rotated page. Cancelling
     /// <paramref name="token"/> also stops a render that has already started. <paramref name="printing"/>
     /// renders the page as it prints, which can hide or show some annotations; <paramref name="annotations"/>
-    /// off leaves out annotations and form fields.
+    /// off leaves out annotations and form fields; <paramref name="grayscale"/> renders it grey the way
+    /// it's printed in black and white.
     /// </summary>
     public Task<PixelBuffer?> RenderAsync(int index, double scale, int rotation, Windows.Graphics.RectInt32 region, bool invert,
-        WorkPriority priority, CancellationToken token, bool printing = false, bool annotations = true)
+        WorkPriority priority, CancellationToken token, bool printing = false, bool annotations = true, bool grayscale = false)
     {
         return PdfWorker.Run<PixelBuffer?>(() =>
         {
@@ -262,11 +263,8 @@ public sealed unsafe partial class PdfDocument : IDisposable
                 if (bitmap == IntPtr.Zero) return null;
                 try
                 {
-                    Native.FPDFBitmap_FillRect(bitmap, 0, 0, region.Width, region.Height, 0xFFFFFFFF);
-                    int flags = (annotations ? Native.FPDF_ANNOT : 0) | (printing ? Native.FPDF_PRINTING : 0);
-                    RenderProgressively(bitmap, page, -region.X, -region.Y, sizeX, sizeY, quarter, flags, token);
-                    // Form fields are only drawn by FFLDraw.
-                    if (_form != IntPtr.Zero && annotations) Native.FPDF_FFLDraw(_form, bitmap, page, -region.X, -region.Y, sizeX, sizeY, quarter, flags);
+                    int flags = (annotations ? Native.FPDF_ANNOT : 0) | (printing ? Native.FPDF_PRINTING : 0) | (grayscale ? Native.FPDF_GRAYSCALE : 0);
+                    RenderOnto(bitmap, p, region.Width, region.Height, page, -region.X, -region.Y, sizeX, sizeY, quarter, flags, token);
                 }
                 finally
                 {
@@ -281,6 +279,21 @@ public sealed unsafe partial class PdfDocument : IDisposable
                 if (!done) buffer.Dispose();
             }
         }, priority, token);
+    }
+
+    /// <summary>
+    /// Renders a page onto a white BGRA bitmap of <paramref name="width"/> x <paramref name="height"/>
+    /// at <paramref name="pixels"/>: its content, then form fields (only FFLDraw draws those), then grey
+    /// for <see cref="Native.FPDF_GRAYSCALE"/>. The viewer, the print preview and pages printed as
+    /// images all go through here, so the preview shows what those print.
+    /// </summary>
+    private void RenderOnto(IntPtr bitmap, byte* pixels, int width, int height, IntPtr page, int x, int y, int sizeX, int sizeY, int quarter, int flags, CancellationToken token)
+    {
+        Native.FPDFBitmap_FillRect(bitmap, 0, 0, width, height, 0xFFFFFFFF);
+        RenderProgressively(bitmap, page, x, y, sizeX, sizeY, quarter, flags, token);
+        if (_form != IntPtr.Zero && (flags & Native.FPDF_ANNOT) != 0) Native.FPDF_FFLDraw(_form, bitmap, page, x, y, sizeX, sizeY, quarter, flags);
+        // Greying the pixels too makes the result grey whatever PDFium's own grey mode covers.
+        if ((flags & Native.FPDF_GRAYSCALE) != 0) ToGray(pixels, width * height * 4);
     }
 
     /// <summary>The token of the render in progress on the worker thread, polled by <see cref="NeedToPauseNow"/>.</summary>

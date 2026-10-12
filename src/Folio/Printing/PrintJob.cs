@@ -27,8 +27,9 @@ internal static partial class PrintJob
     private const int ERROR_CANCELLED = 1223;
 
     /// <summary>
-    /// Prints <paramref name="request"/>, reporting sides sent and the total. Returns the number of
-    /// pages that couldn't be drawn and were left blank. Cancelling deletes the job.
+    /// Prints <paramref name="request"/>, reporting the sheets of paper sent so far and in all (counting
+    /// both sides of each when printing two-sided, and the blank backs between copies). Returns the
+    /// number of pages that couldn't be drawn and were left blank. Cancelling deletes the job.
     /// </summary>
     public static async Task<int> RunAsync(PdfDocument document, PrintRequest request, IProgress<(int Done, int Total)> progress, CancellationToken token)
     {
@@ -41,6 +42,7 @@ internal static partial class PrintJob
             // Laid out again for the paper the printer actually reports, which the preview could only ask about.
             var sheets = PrintLayout.Layout(request.Pages, document.PageSizes, paper, request.Layout);
             var sequence = PrintLayout.Sequence(sheets.Count, request.Copies, request.Collate, request.TwoSided);
+            int paperTotal = PrintLayout.PaperCount(sequence, request.TwoSided);
 
             await Task.Run(() => StartDoc(dc, request), token).ConfigureAwait(false);
             started = true;
@@ -73,7 +75,7 @@ internal static partial class PrintJob
                     if (EndPage(dc) <= 0) throw new InvalidOperationException("The printer stopped accepting pages.");
                     return failures;
                 }, WorkPriority.Normal, token).ConfigureAwait(false);
-                progress.Report((n + 1, sequence.Count));
+                progress.Report((request.TwoSided ? (n + 2) / 2 : n + 1, paperTotal));
             }
 
             await Task.Run(() =>
@@ -125,15 +127,7 @@ internal static partial class PrintJob
     private static void Draw(PdfDocument document, IntPtr dc, PrintSheet sheet, PagePlacement placement, PaperMetrics paper,
         int dpiX, int dpiY, int offsetX, int offsetY, PrintRequest request)
     {
-        Rect bounds = placement.Bounds, clip = placement.Clip;
-        int quarter = 0;
-        // A sheet turned from the paper goes through the printer sideways.
-        if (sheet.Paper.IsLandscape != paper.IsLandscape)
-        {
-            bounds = PrintLayout.ToPaper(bounds, sheet.Paper.Width);
-            clip = PrintLayout.ToPaper(clip, sheet.Paper.Width);
-            quarter = 3;
-        }
+        var (bounds, clip, quarter) = PrintLayout.OnPaper(sheet, placement, paper);
         RectInt32 ToDevice(Rect r)
         {
             int left = (int)Math.Round(r.X * dpiX / 72), top = (int)Math.Round(r.Y * dpiY / 72);

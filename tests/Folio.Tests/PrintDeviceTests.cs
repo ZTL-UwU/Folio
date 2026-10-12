@@ -36,6 +36,31 @@ public sealed partial class PrintDeviceTests : IDisposable
         Assert.True(r < 250, "the highlight is missing");
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task DrawToDevice_TurnsLandscapeSheetsTheWayOnPaperSays(bool asImage)
+    {
+        // A landscape page with yellow along its top, in the top-left quarter of a landscape sheet
+        // that prints on portrait paper, drawn the way PrintJob draws it.
+        using var document = await PdfDocument.OpenAsync(_temp.Write("wide.pdf", TestPdf.Create(mediaBox: "0 0 300 200")));
+        await document.AddHighlightAsync(0, [new Rect(20, 10, 260, 40)], Color.FromArgb(255, 255, 221, 51));
+        var sheet = new Folio.Printing.PrintSheet(new Folio.Printing.PaperMetrics(300, 200, new Rect(0, 0, 300, 200)), []);
+        var placement = new Folio.Printing.PagePlacement(0, new Rect(0, 0, 150, 100), new Rect(0, 0, 300, 200));
+        var paper = new Folio.Printing.PaperMetrics(Width, Height, new Rect(0, 0, Width, Height));
+        var (bounds, clip, quarter) = Folio.Printing.PrintLayout.OnPaper(sheet, placement, paper);
+
+        uint[] pixels = await PdfWorker.Run(() => Draw(document, ToPixels(bounds), quarter, ToPixels(clip), annotations: true, asImage, grayscale: false));
+
+        // The quarter lands bottom-left on the paper, 100 x 150, with the page's top along its left
+        // edge: yellow there, nothing on its right edge (where a clockwise turn would put it) or above.
+        Assert.True(IsYellow(pixels[225 * Width + 15]), "the top of the page isn't along the paper's left edge");
+        Assert.False(IsYellow(pixels[225 * Width + 85]));
+        Assert.False(IsYellow(pixels[75 * Width + 15]));
+    }
+
+    private static RectInt32 ToPixels(Rect r) => new((int)r.X, (int)r.Y, (int)r.Width, (int)r.Height);
+
     private async Task<PdfDocument> OpenHighlightedAsync()
     {
         var document = await PdfDocument.OpenAsync(_temp.Write("doc.pdf", TestPdf.Create()));
@@ -44,17 +69,23 @@ public sealed partial class PrintDeviceTests : IDisposable
         return document;
     }
 
-    private static bool IsYellowAtCentre(uint pixel)
+    private static bool IsYellowAtCentre(uint pixel) => IsYellow(pixel);
+
+    private static bool IsYellow(uint pixel)
     {
         byte b = (byte)pixel, g = (byte)(pixel >> 8), r = (byte)(pixel >> 16);
         return r > 200 && g > 180 && b < 160;
     }
 
-    /// <summary>Draws page 1 at one pixel per point onto a white bitmap and returns the BGRA pixel at its centre.</summary>
+    /// <summary>Draws page 1 over the whole bitmap, at one pixel per point, and returns the BGRA pixel at its centre.</summary>
     private static Task<uint> DrawAsync(PdfDocument document, bool annotations, bool asImage, bool grayscale)
-        => PdfWorker.Run(() => Draw(document, annotations, asImage, grayscale));
+    {
+        var rect = new RectInt32(0, 0, Width, Height);
+        return PdfWorker.Run(() => Draw(document, rect, 0, rect, annotations, asImage, grayscale)[Height / 2 * Width + Width / 2]);
+    }
 
-    private static unsafe uint Draw(PdfDocument document, bool annotations, bool asImage, bool grayscale)
+    /// <summary>Draws page 1 onto a white <see cref="Width"/> x <see cref="Height"/> bitmap and returns its BGRA pixels. Call on the PDFium thread.</summary>
+    private static unsafe uint[] Draw(PdfDocument document, RectInt32 bounds, int quarter, RectInt32 clip, bool annotations, bool asImage, bool grayscale)
     {
         IntPtr dc = CreateCompatibleDC(IntPtr.Zero);
         var info = new BITMAPINFOHEADER { Size = sizeof(BITMAPINFOHEADER), Width = Width, Height = -Height, Planes = 1, BitCount = 32 };
@@ -63,10 +94,9 @@ public sealed partial class PrintDeviceTests : IDisposable
         try
         {
             new Span<uint>(bits, Width * Height).Fill(0xFFFFFFFF);
-            var rect = new RectInt32(0, 0, Width, Height);
-            document.DrawToDevice(dc, 0, rect, 0, rect, 72, annotations, grayscale, asImage);
+            document.DrawToDevice(dc, 0, bounds, quarter, clip, 72, annotations, grayscale, asImage);
             GdiFlush();
-            return ((uint*)bits)[Height / 2 * Width + Width / 2];
+            return new Span<uint>(bits, Width * Height).ToArray();
         }
         finally
         {

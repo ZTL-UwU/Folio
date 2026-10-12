@@ -55,23 +55,45 @@ public sealed partial class PrintDialog : ContentDialog
         _updating = true;
         InitializeComponent();
 
-        // In the order of the enums and indexes the rest of the dialog reads them by.
+        // Each option carries the setting it stands for (read with Choice, picked with Choose), so the
+        // order they're listed in is only how they look. The first of each list is the default.
         int count = document.PageCount;
         PagesBox.ItemsSource = new PrintChoice[]
         {
-            new("\uE8C8", "All pages", count == 1 ? "1 page" : $"{count:N0} pages"),
-            new("\uE7C3", "Current page", $"Page {_currentPage + 1:N0}"),
-            new("\uE9D5", "Custom", "Choose the pages to print"),
+            new(PageRange.All, "\uE8C8", "All pages", count == 1 ? "1 page" : $"{count:N0} pages"),
+            new(PageRange.Current, "\uE7C3", "Current page", $"Page {_currentPage + 1:N0}"),
+            new(PageRange.Custom, "\uE9D5", "Custom", "Choose the pages to print"),
         };
-        OrientationBox.ItemsSource = new PrintChoice[] { new("\uE8B4", "Automatic"), new("\uE7C3", "Portrait"), new("\uE7C3", "Landscape", angle: 90) };
-        ColorBox.ItemsSource = new PrintChoice[] { new("\uE790", "Color"), new("\uE7A1", "Black and white") };
+        OrientationBox.ItemsSource = new PrintChoice[]
+        {
+            new(SheetOrientation.Automatic, "\uE8B4", "Automatic"),
+            new(SheetOrientation.Portrait, "\uE7C3", "Portrait"),
+            new(SheetOrientation.Landscape, "\uE7C3", "Landscape", angle: 90),
+        };
+        // The value is whether to print in grey.
+        ColorBox.ItemsSource = new PrintChoice[] { new(false, "\uE790", "Color"), new(true, "\uE7A1", "Black and white") };
         DuplexBox.ItemsSource = new PrintChoice[]
         {
-            new("\uE7C3", "Off"), new("\uE8C8", "Flip on long edge"), new("\uE8C8", "Flip on short edge", angle: 90),
+            new(TwoSided.Off, "\uE7C3", "Off"),
+            new(TwoSided.LongEdge, "\uE8C8", "Flip on long edge"),
+            new(TwoSided.ShortEdge, "\uE8C8", "Flip on short edge", angle: 90),
         };
-        foreach (var box in new[] { PagesBox, OrientationBox, ColorBox, DuplexBox }) box.SelectedIndex = 0;
-        foreach (int n in PrintLayout.PagesPerSheetChoices) PerSheetBox.Items.Add(n.ToString());
-        PerSheetBox.SelectedIndex = 0;
+        // Without an icon: these lists show the option's text.
+        PerSheetBox.ItemsSource = PrintLayout.PagesPerSheetChoices.Select(n => new PrintChoice(n, "", n.ToString())).ToArray();
+        ScaleBox.ItemsSource = new PrintChoice[]
+        {
+            new(PrintScaling.Fit, "", "Fit to printable area"),
+            new(PrintScaling.ShrinkOversized, "", "Shrink oversized pages"),
+            new(PrintScaling.ActualSize, "", "Actual size"),
+            new(PrintScaling.Custom, "", "Custom"),
+        };
+        SubsetBox.ItemsSource = new PrintChoice[]
+        {
+            new(PageSubset.All, "", "All pages in range"),
+            new(PageSubset.Odd, "", "Odd pages only"),
+            new(PageSubset.Even, "", "Even pages only"),
+        };
+        foreach (var box in new[] { PagesBox, OrientationBox, ColorBox, DuplexBox, PerSheetBox, ScaleBox, SubsetBox }) box.SelectedIndex = 0;
         _updating = false;
 
         Closing += OnClosing;
@@ -90,6 +112,25 @@ public sealed partial class PrintDialog : ContentDialog
 
     private static Style AppStyle(string key) => (Style)Application.Current.Resources[key];
 
+    /// <summary>Which pages the Pages list stands for.</summary>
+    private enum PageRange
+    {
+        All,
+        Current,
+        Custom,
+    }
+
+    /// <summary>The setting the option picked in <paramref name="box"/> stands for, or <paramref name="fallback"/> before one is.</summary>
+    private static T Choice<T>(ComboBox box, T fallback) => box.SelectedItem is PrintChoice { Value: T value } ? value : fallback;
+
+    /// <summary>Picks the option of <paramref name="box"/> that stands for <paramref name="value"/>, if it has one.</summary>
+    private static void Choose<T>(ComboBox box, T value)
+    {
+        if ((box.ItemsSource as IEnumerable<PrintChoice>)?.FirstOrDefault(c => Equals(c.Value, value)) is { } choice) box.SelectedItem = choice;
+    }
+
+    private PageRange PagesChoice => Choice(PagesBox, PageRange.All);
+
     /// <summary>Whether the user asked for the Windows print dialog instead.</summary>
     public bool UseSystemDialog { get; private set; }
 
@@ -98,7 +139,8 @@ public sealed partial class PrintDialog : ContentDialog
 
     private async void OnOpened(ContentDialog sender, ContentDialogOpenedEventArgs args)
     {
-        // Rather than the first control in the dialog, the preview's sheet buttons.
+        // Start on the printer list. Otherwise focus goes to the first control in the dialog, which is
+        // one of the preview's sheet buttons.
         PrinterBox.Focus(FocusState.Programmatic);
         List<string> names;
         try
@@ -169,14 +211,14 @@ public sealed partial class PrintDialog : ContentDialog
         bool remembered = prefs.Printer == name;
 
         _updating = true;
-        PaperBox.ItemsSource = details.Papers.Select(p => p.Name).ToList();
+        PaperBox.ItemsSource = details.Papers.Select(p => new PrintChoice(p, "", p.Name)).ToArray();
         PaperBox.Visibility = details.Papers.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
         short? paper = remembered && details.Papers.Any(p => p.Id == prefs.PaperSize) ? prefs.PaperSize : details.Defaults.PaperSize;
         SelectPaper(paper);
         ColorBox.Visibility = details.IsColor ? Visibility.Visible : Visibility.Collapsed;
-        ColorBox.SelectedIndex = (remembered ? prefs.Grayscale : details.Defaults.Grayscale ?? false) ? 1 : 0;
+        Choose(ColorBox, remembered ? prefs.Grayscale : details.Defaults.Grayscale ?? false);
         DuplexBox.Visibility = details.CanDuplex ? Visibility.Visible : Visibility.Collapsed;
-        DuplexBox.SelectedIndex = (int)(remembered ? prefs.TwoSided : details.Defaults.Duplex ?? TwoSided.Off);
+        Choose(DuplexBox, remembered ? prefs.TwoSided : details.Defaults.Duplex ?? TwoSided.Off);
         _updating = false;
 
         var status = new List<string>();
@@ -195,15 +237,15 @@ public sealed partial class PrintDialog : ContentDialog
     private void SelectPaper(short? id)
     {
         if (_printer is null || _printer.Papers.Count == 0) return;
-        int index = id is { } v ? _printer.Papers.ToList().FindIndex(p => p.Id == v) : -1;
-        PaperBox.SelectedIndex = index >= 0 ? index : 0;
+        var paper = _printer.Papers.FirstOrDefault(p => p.Id == id) ?? _printer.Papers[0];
+        Choose(PaperBox, paper);
     }
 
-    private PaperSize? SelectedPaper => _printer is { } p && PaperBox.SelectedIndex >= 0 && PaperBox.SelectedIndex < p.Papers.Count ? p.Papers[PaperBox.SelectedIndex] : null;
+    private PaperSize? SelectedPaper => Choice<PaperSize?>(PaperBox, null);
 
-    private bool Grayscale => _printer is { IsColor: false } || (ColorBox.Visibility == Visibility.Visible && ColorBox.SelectedIndex == 1);
+    private bool Grayscale => _printer is { IsColor: false } || (ColorBox.Visibility == Visibility.Visible && Choice(ColorBox, false));
 
-    private TwoSided TwoSidedChoice => _printer is { CanDuplex: true } ? (TwoSided)Math.Max(0, DuplexBox.SelectedIndex) : TwoSided.Off;
+    private TwoSided TwoSidedChoice => _printer is { CanDuplex: true } ? Choice(DuplexBox, TwoSided.Off) : TwoSided.Off;
 
     private int Copies => double.IsNaN(CopiesBox.Value) ? 1 : (int)Math.Clamp(CopiesBox.Value, 1, 999);
 
@@ -273,9 +315,9 @@ public sealed partial class PrintDialog : ContentDialog
         _settings = result;
         _updating = true;
         SelectPaper(result.PaperSize);
-        if (result.Landscape == true) OrientationBox.SelectedIndex = 2;
-        if (printer.IsColor && result.Grayscale is { } gray) ColorBox.SelectedIndex = gray ? 1 : 0;
-        if (printer.CanDuplex && result.Duplex is { } duplex) DuplexBox.SelectedIndex = (int)duplex;
+        if (result.Landscape == true) Choose(OrientationBox, SheetOrientation.Landscape);
+        if (printer.IsColor && result.Grayscale is { } gray) Choose(ColorBox, gray);
+        if (printer.CanDuplex && result.Duplex is { } duplex) Choose(DuplexBox, duplex);
         if (result.Copies is { } copies && copies > 0) CopiesBox.Value = copies;
         if (result.Collate is { } collate) CollateBox.IsChecked = collate;
         CollateBox.IsEnabled = Copies > 1;
@@ -295,7 +337,7 @@ public sealed partial class PrintDialog : ContentDialog
     private void OnPagesChanged(object sender, SelectionChangedEventArgs e)
     {
         if (_updating) return;
-        bool custom = PagesBox.SelectedIndex == 2;
+        bool custom = PagesChoice == PageRange.Custom;
         RangeBox.Visibility = custom ? Visibility.Visible : Visibility.Collapsed;
         Relayout();
     }
@@ -304,7 +346,7 @@ public sealed partial class PrintDialog : ContentDialog
     {
         // Picked "Custom" from the list: the range is typed next. Not on SelectionChanged, which also
         // fires for arrow keys on the closed box, and while the list is open it takes focus back.
-        if (PagesBox.SelectedIndex == 2) RangeBox.Focus(FocusState.Programmatic);
+        if (PagesChoice == PageRange.Custom) RangeBox.Focus(FocusState.Programmatic);
     }
 
     private void OnToggleMore(object sender, RoutedEventArgs e)
@@ -341,7 +383,7 @@ public sealed partial class PrintDialog : ContentDialog
     private void OnScaleChanged(object sender, SelectionChangedEventArgs e)
     {
         if (_updating) return;
-        ScalePercentBox.Visibility = ScaleBox.SelectedIndex == 3 ? Visibility.Visible : Visibility.Collapsed;
+        ScalePercentBox.Visibility = Choice(ScaleBox, PrintScaling.Fit) == PrintScaling.Custom ? Visibility.Visible : Visibility.Collapsed;
         Relayout();
     }
 
@@ -353,28 +395,28 @@ public sealed partial class PrintDialog : ContentDialog
     }
 
     private LayoutOptions Layout => new(
-        (SheetOrientation)Math.Max(0, OrientationBox.SelectedIndex),
-        (PrintScaling)Math.Max(0, ScaleBox.SelectedIndex),
+        Choice(OrientationBox, SheetOrientation.Automatic),
+        Choice(ScaleBox, PrintScaling.Fit),
         (double.IsNaN(ScalePercentBox.Value) ? 100 : ScalePercentBox.Value) / 100,
-        PrintLayout.PagesPerSheetChoices[Math.Max(0, PerSheetBox.SelectedIndex)]);
+        Choice(PerSheetBox, 1));
 
     /// <summary>The pages to print, in order, or an explanation of what's wrong with the range.</summary>
     private bool TryGetPages(out List<int> pages, out string? error)
     {
         error = null;
-        switch (PagesBox.SelectedIndex)
+        switch (PagesChoice)
         {
-            case 1:
+            case PageRange.Current:
                 pages = [_currentPage];
                 break;
-            case 2:
+            case PageRange.Custom:
                 if (!PrintLayout.TryParseRanges(RangeBox.Text, _document.PageCount, out pages, out error)) return false;
                 break;
             default:
                 pages = [.. Enumerable.Range(0, _document.PageCount)];
                 break;
         }
-        var subset = (PageSubset)Math.Max(0, SubsetBox.SelectedIndex);
+        var subset = Choice(SubsetBox, PageSubset.All);
         pages = PrintLayout.Filter(pages, subset, ReverseBox.IsChecked == true);
         if (pages.Count == 0)
         {
@@ -396,7 +438,7 @@ public sealed partial class PrintDialog : ContentDialog
         else
         {
             // An unfinished range while typing: no error until there's something to complain about.
-            bool show = PagesBox.SelectedIndex != 2 || RangeBox.Text.Trim().Length > 0;
+            bool show = PagesChoice != PageRange.Custom || RangeBox.Text.Trim().Length > 0;
             RangeError.Text = error;
             RangeError.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
             _problem = show ? error : "Enter the pages to print.";
@@ -492,9 +534,8 @@ public sealed partial class PrintDialog : ContentDialog
                 Math.Max(1, (int)Math.Round(visible.Width * pixels)), Math.Max(1, (int)Math.Round(visible.Height * pixels)));
             try
             {
-                using var buffer = await _document.RenderAsync(placement.Page, scale, 0, region, false, WorkPriority.Visible, cts.Token, printing: true, annotations);
+                using var buffer = await _document.RenderAsync(placement.Page, scale, 0, region, false, WorkPriority.Visible, cts.Token, printing: true, annotations, gray);
                 if (buffer is null || cts.IsCancellationRequested) return (visible, null);
-                if (gray) await Task.Run(() => MakeGray(buffer));
                 return (visible, await PageView.ToSourceAsync(buffer));
             }
             catch (InvalidDataException)
@@ -533,8 +574,6 @@ public sealed partial class PrintDialog : ContentDialog
             SheetCanvas.Children.Add(image);
         }
     }
-
-    private static unsafe void MakeGray(PixelBuffer buffer) => PdfDocument.ToGray(buffer.Pointer, buffer.Length);
 
     private void ReleaseImages()
     {
@@ -585,7 +624,7 @@ public sealed partial class PrintDialog : ContentDialog
         {
             if (!_printing) return;
             PrintProgress.Value = (double)p.Done / p.Total;
-            ProgressText.Text = $"Sending page {p.Done:N0} of {p.Total:N0}…";
+            ProgressText.Text = $"Sending sheet {p.Done:N0} of {p.Total:N0}…";
         });
         try
         {
@@ -652,9 +691,14 @@ public sealed partial class PrintDialog : ContentDialog
     }
 }
 
-/// <summary>An option in the print dialog's main lists: an icon, its name and maybe a second line.</summary>
-public sealed class PrintChoice(string glyph, string text, string? detail = null, double angle = 0)
+/// <summary>
+/// An option in the print dialog's lists: the setting it stands for, its name, and for the main
+/// lists an icon and maybe a second line. Lists without the icon template show <see cref="ToString"/>.
+/// </summary>
+public sealed class PrintChoice(object value, string glyph, string text, string? detail = null, double angle = 0)
 {
+    /// <summary>The setting the option stands for: an enum value, a number, a paper size.</summary>
+    public object Value => value;
     public string Glyph => glyph;
     /// <summary>Turns the icon, for the sideways version of one.</summary>
     public double Angle => angle;

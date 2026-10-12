@@ -47,23 +47,27 @@ public sealed class PrintLayoutTests
     [Fact]
     public void Layout_FitsPageToPrintableArea()
     {
-        var sheet = Assert.Single(PrintLayout.Layout([0], [Portrait], Letter, new(SheetOrientation.Automatic, PrintScaling.Fit, 1, 1)));
+        // Uneven margins, so the printable area's centre (324, 387) isn't the paper's (306, 396).
+        var paper = new PaperMetrics(612, 792, new Rect(54, 18, 540, 738));
+        var sheet = Assert.Single(PrintLayout.Layout([0], [Portrait], paper, new(SheetOrientation.Automatic, PrintScaling.Fit, 1, 1)));
         var placement = Assert.Single(sheet.Pages);
         Assert.False(sheet.Paper.IsLandscape);
-        // Limited by the width: 576 / 612, and centred in the printable area.
-        Assert.Equal(576, placement.Bounds.Width, 3);
-        Assert.Equal(792 * 576 / 612.0, placement.Bounds.Height, 3);
-        Assert.Equal(306, placement.Bounds.X + placement.Bounds.Width / 2, 3);
-        Assert.Equal(396, placement.Bounds.Y + placement.Bounds.Height / 2, 3);
+        // Limited by the width: 540 / 612, and centred in the printable area.
+        Assert.Equal(540, placement.Bounds.Width, 3);
+        Assert.Equal(792 * 540 / 612.0, placement.Bounds.Height, 3);
+        Assert.Equal(324, placement.Bounds.X + placement.Bounds.Width / 2, 3);
+        Assert.Equal(387, placement.Bounds.Y + placement.Bounds.Height / 2, 3);
     }
 
     [Fact]
     public void Layout_ActualSizeIsCentredOnThePaperAndClippedToThePrintableArea()
     {
-        var sheet = Assert.Single(PrintLayout.Layout([0], [Portrait], Letter, new(SheetOrientation.Portrait, PrintScaling.ActualSize, 1, 1)));
+        // Uneven margins: centred on the paper all the same, not on the printable area.
+        var paper = new PaperMetrics(612, 792, new Rect(54, 18, 540, 738));
+        var sheet = Assert.Single(PrintLayout.Layout([0], [new Size(306, 396)], paper, new(SheetOrientation.Portrait, PrintScaling.ActualSize, 1, 1)));
         var placement = Assert.Single(sheet.Pages);
-        Assert.Equal(new Rect(0, 0, 612, 792), placement.Bounds);
-        Assert.Equal(Letter.Printable, placement.Clip);
+        Assert.Equal(new Rect(153, 198, 306, 396), placement.Bounds);
+        Assert.Equal(paper.Printable, placement.Clip);
     }
 
     [Fact]
@@ -111,6 +115,27 @@ public sealed class PrintLayoutTests
         var sheet = PrintLayout.Orient(new PaperMetrics(612, 792, new Rect(10, 20, 580, 740)), landscape: true);
         // The printable area, mapped back onto the paper, is where it started.
         Assert.Equal(new Rect(10, 20, 580, 740), PrintLayout.ToPaper(sheet.Printable, sheet.Width));
+    }
+
+    [Fact]
+    public void OnPaper_TurnsLandscapeSheetsCounterclockwise()
+    {
+        // A landscape sheet on portrait paper: the sheet's top-left quarter goes to the paper's
+        // bottom-left (its top along the paper's left edge), drawn three quarters clockwise.
+        var sheet = new PrintSheet(PrintLayout.Orient(Letter, landscape: true), []);
+        var placement = new PagePlacement(0, new Rect(0, 0, 396, 306), new Rect(0, 0, 396, 306));
+        var (bounds, clip, quarter) = PrintLayout.OnPaper(sheet, placement, Letter);
+        Assert.Equal(new Rect(0, 396, 306, 396), bounds);
+        Assert.Equal(bounds, clip);
+        Assert.Equal(3, quarter);
+    }
+
+    [Fact]
+    public void OnPaper_LeavesSheetsTheWayThePaperIsAlone()
+    {
+        var sheet = new PrintSheet(Letter, []);
+        var placement = new PagePlacement(0, new Rect(10, 20, 30, 40), new Rect(0, 0, 612, 792));
+        Assert.Equal((placement.Bounds, placement.Clip, 0), PrintLayout.OnPaper(sheet, placement, Letter));
     }
 
     [Fact]
