@@ -45,6 +45,8 @@ public sealed partial class MainWindow : Window
     /// <summary>The password that unlocked <see cref="_document"/>, kept for reloads during this session.</summary>
     private string? _password;
     private int _opening;
+    /// <summary>The window was opened for a file and stays empty until it loads, instead of flashing the start page.</summary>
+    private bool _hideStartPage;
     private RecentDocument? _entry;
     private CancellationTokenSource? _searchCts;
     private CancellationTokenSource? _annotationScanCts;
@@ -186,6 +188,12 @@ public sealed partial class MainWindow : Window
     public async Task OpenAsync(string path)
     {
         _opening++;
+        // Not loaded yet means nothing has been drawn: a new window opened for this file.
+        if (!_loaded.Task.IsCompleted && _document is null)
+        {
+            _hideStartPage = true;
+            ShowCurrentView();
+        }
         try
         {
             await _loaded.Task;
@@ -218,6 +226,12 @@ public sealed partial class MainWindow : Window
         finally
         {
             _opening--;
+            // Missing, unreadable or cancelled: fall back to the start page.
+            if (_opening == 0 && _hideStartPage)
+            {
+                _hideStartPage = false;
+                ShowCurrentView();
+            }
         }
     }
 
@@ -1540,7 +1554,7 @@ public sealed partial class MainWindow : Window
     private void ShowCurrentView()
     {
         SettingsView.Visibility = _settingsOpen ? Visibility.Visible : Visibility.Collapsed;
-        StartView.Visibility = !_settingsOpen && _document is null ? Visibility.Visible : Visibility.Collapsed;
+        StartView.Visibility = !_settingsOpen && _document is null && !_hideStartPage ? Visibility.Visible : Visibility.Collapsed;
         DocumentLayout.Visibility = !_settingsOpen && _document is not null ? Visibility.Visible : Visibility.Collapsed;
     }
 
