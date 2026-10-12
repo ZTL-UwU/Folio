@@ -5,6 +5,7 @@ using Folio.Printing;
 using Folio.Services;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Hosting;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Animation;
@@ -32,6 +33,11 @@ public sealed partial class PrintDialog : ContentDialog
     /// <summary>The printer's settings for the job, including ones only its own dialog can change.</summary>
     private DevMode? _settings;
     private PaperMetrics _paper = PaperMetrics.Letter;
+    /// <summary>
+    /// Whether <see cref="_paper"/> is what the printer reported, or there's no printer to ask. Until
+    /// then the preview stays empty, so it doesn't show Letter and then jump to the printer's paper.
+    /// </summary>
+    private bool _paperKnown;
     private List<PrintSheet> _sheets = [];
     private int _sheetIndex;
     private int _printerVersion, _paperVersion;
@@ -96,6 +102,14 @@ public sealed partial class PrintDialog : ContentDialog
         foreach (var box in new[] { PagesBox, OrientationBox, ColorBox, DuplexBox, PerSheetBox, ScaleBox, SubsetBox }) box.SelectedIndex = 0;
         _updating = false;
 
+        // The sheet fades in when it first shows, rather than popping in once its pages are drawn.
+        var fadeIn = ElementCompositionPreview.GetElementVisual(Sheet).Compositor.CreateScalarKeyFrameAnimation();
+        fadeIn.Target = "Opacity";
+        fadeIn.InsertKeyFrame(0, 0);
+        fadeIn.InsertKeyFrame(1, 1);
+        fadeIn.Duration = TimeSpan.FromMilliseconds(200);
+        ElementCompositionPreview.SetImplicitShowAnimation(Sheet, fadeIn);
+
         Closing += OnClosing;
         KeyDown += OnKeyDown;
         Opened += OnOpened;
@@ -155,6 +169,7 @@ public sealed partial class PrintDialog : ContentDialog
         {
             PrinterBox.PlaceholderText = "No printers";
             PrinterStatus.Text = "Add a printer in Windows Settings, or use the system dialog.";
+            PaperKnown();
             return;
         }
         string? remembered = AppState.Preferences.Print.Printer;
@@ -201,6 +216,7 @@ public sealed partial class PrintDialog : ContentDialog
         {
             if (version != _printerVersion) return;
             PrinterStatus.Text = $"Unavailable. {ex.Message}";
+            PaperKnown();
             return;
         }
         if (version != _printerVersion) return;
@@ -285,7 +301,16 @@ public sealed partial class PrintDialog : ContentDialog
             metrics = new PaperMetrics(paper.Width, paper.Height, new Rect(18, 18, Math.Max(1, paper.Width - 36), Math.Max(1, paper.Height - 36)));
         }
         _paper = metrics ?? PaperMetrics.Letter;
+        _paperKnown = true;
         Relayout();
+    }
+
+    /// <summary>Shows the preview on the paper there is, when the printer can't say what it'll use.</summary>
+    private void PaperKnown()
+    {
+        if (_paperKnown) return;
+        _paperKnown = true;
+        RenderPreview();
     }
 
     private async void OnPaperChanged(object sender, SelectionChangedEventArgs e)
@@ -515,7 +540,7 @@ public sealed partial class PrintDialog : ContentDialog
             return;
         }
         double availableWidth = PreviewHost.ActualWidth, availableHeight = PreviewHost.ActualHeight;
-        if (availableWidth <= 0 || availableHeight <= 0) return;
+        if (!_paperKnown || availableWidth <= 0 || availableHeight <= 0) return;
 
         var sheet = _sheets[_sheetIndex];
         double k = Math.Min(availableWidth / sheet.Paper.Width, availableHeight / sheet.Paper.Height);
