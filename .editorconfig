@@ -4,8 +4,6 @@ root = true
 indent_style = space
 indent_size = 4
 tab_width = 4
-# CsWinRTAotWarningLevel 2 (Folio.csproj) flags every non-partial IDisposable, though the ones here never reach WinRT.
-cswinrt_aot_warning_suppressed_interfaces = System.IDisposable
 
 [**/*.xaml]
 indent_style = space

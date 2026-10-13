@@ -170,7 +170,7 @@ public sealed class DocumentInfo
 /// BGRA pixels in native memory. Page bitmaps run to tens of megabytes; as managed arrays they'd
 /// land on the large object heap, or stay parked in a shared pool long after a render.
 /// </summary>
-public sealed unsafe class PixelBuffer : IDisposable
+public sealed unsafe partial class PixelBuffer : IDisposable
 {
     private byte* _data;
 
