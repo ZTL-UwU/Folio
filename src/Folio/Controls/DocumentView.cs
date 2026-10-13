@@ -1076,11 +1076,14 @@ public sealed partial class DocumentView : UserControl
     }
 
     /// <summary>
-    /// Whether the caret a press at <paramref name="display"/> would place is in view, with at least
-    /// half its line showing, so a press in empty space doesn't start selecting text off screen.
+    /// Whether a press at <paramref name="display"/> can start a selection: one on text always can
+    /// (wherever the I-beam shows, even on a line cut off by the edge of the view); one in empty
+    /// space only when the caret it places is in view with at least half its line showing, so it
+    /// doesn't start selecting text off screen.
     /// </summary>
-    private bool IsCaretInView(int page, PageText text, Point display)
+    private bool CanStartSelection(int page, PageText text, Point display)
     {
+        if (text.Layout.CharAt(display, 1) >= 0) return true;
         if (text.Layout.CaretPoint(display) is not { } caret) return false;
         var rect = _pageRects[page];
         var view = _views[page].ToView(caret);
@@ -1144,9 +1147,9 @@ public sealed partial class DocumentView : UserControl
         _pressedLink = null;
         _linkDragAnchor = null;
         // A press starts a new selection (or extends the current one with Shift), so a drag never
-        // carries on from an old selection; one whose nearest text is out of view only clears it.
-        // On a link that waits until the press turns into a drag, which selects the text under it;
-        // a click follows the link and leaves the selection alone.
+        // carries on from an old selection; one in empty space whose nearest text is out of view
+        // only clears it. On a link that waits until the press turns into a drag, which selects the
+        // text under it; a click follows the link and leaves the selection alone.
         bool extend = (e.KeyModifiers & VirtualKeyModifiers.Shift) != 0 && _selectionAnchor is not null;
         var hit = HitPage(point.Position);
         if (hit is { } h) _pressedLink = LinkAt(h.Page, h.Display);
@@ -1162,7 +1165,7 @@ public sealed partial class DocumentView : UserControl
         else
         {
             ClearSelection();
-            if (target is { } t && t.Display is { } d && IsCaretInView(t.Position.Page, t.Text, d)) _selectionAnchor = t.Position;
+            if (target is { } t && t.Display is { } d && CanStartSelection(t.Position.Page, t.Text, d)) _selectionAnchor = t.Position;
         }
         _host.CapturePointer(e.Pointer);
         e.Handled = true;
