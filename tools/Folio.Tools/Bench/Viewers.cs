@@ -26,6 +26,23 @@ internal sealed class Viewer : IDisposable
     /// <summary>A profile or settings folder made for the benchmark, deleted afterwards.</summary>
     public string? Scratch { get; init; }
 
+    /// <summary>
+    /// A short version from the executable, such as "26.2", and the commit it was built from if it says (as Folio does,
+    /// in "1.0.0+&lt;commit&gt;"), such as "1.0 · 48ea997". Read when asked, as Folio's is published after <see cref="Find"/>.
+    /// </summary>
+    public string? Version
+    {
+        get
+        {
+            if (!File.Exists(Exe)) return null;
+            var info = FileVersionInfo.GetVersionInfo(Exe);
+            if (info.FileMajorPart == 0 && info.FileMinorPart == 0) return null;
+            string version = $"{info.FileMajorPart}.{info.FileMinorPart}";
+            string? commit = info.ProductVersion?.Split('+') is [_, var hash] && hash.Length >= 7 ? hash[..7] : null;
+            return commit is null ? version : $"{version} · {commit}";
+        }
+    }
+
     /// <summary>The viewer's processes that are running now.</summary>
     public List<Process> Running() => Images.SelectMany(Process.GetProcessesByName)
         .Where(p => !OneInstancePerCopy || string.Equals(PathOf(p), Exe, StringComparison.OrdinalIgnoreCase))

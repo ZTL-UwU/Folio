@@ -15,6 +15,8 @@ internal sealed record BenchResults
     public required double SettleSeconds { get; init; }
     public required List<DocumentInfo> Documents { get; init; }
     public required List<Summary> Results { get; init; }
+    /// <summary>Each viewer's version, such as "26.2" or, for Folio, "1.0 · 48ea997"; missing from results saved before versions were recorded.</summary>
+    public Dictionary<string, string>? Versions { get; init; }
 
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web) { WriteIndented = true };
 

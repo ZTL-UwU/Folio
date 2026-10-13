@@ -85,7 +85,16 @@ internal static class Chart
                 double center = y + RowHeight / 2.0;
                 bool folio = app == "Folio";
                 string weight = folio ? "600" : "400", color = folio ? "#1b2a41" : "#4a5a72";
-                svg.Append($"""<text x="{left - 10}" y="{N(center + 4.5)}" text-anchor="end" font-size="13" font-weight="{weight}" fill="{color}">{HtmlEncode(app)}</text>""");
+                if (results.Versions?.GetValueOrDefault(app) is { } version)
+                {
+                    // The name nudged up to make room for the version under it, the two centred on the bar together.
+                    svg.Append($"""<text x="{left - 10}" y="{N(center + 0.5)}" text-anchor="end" font-size="13" font-weight="{weight}" fill="{color}">{HtmlEncode(app)}</text>""");
+                    svg.Append($"""<text x="{left - 10}" y="{N(center + 11)}" text-anchor="end" font-size="7" fill="#a3afc0">{HtmlEncode(version)}</text>""");
+                }
+                else
+                {
+                    svg.Append($"""<text x="{left - 10}" y="{N(center + 4.5)}" text-anchor="end" font-size="13" font-weight="{weight}" fill="{color}">{HtmlEncode(app)}</text>""");
+                }
                 if (Value(app, document.Id) is { } value)
                 {
                     // Rounded at the data end, square at the baseline.

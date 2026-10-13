@@ -65,6 +65,7 @@ internal static class BenchCommand
                 SettleSeconds = settings.SettleSeconds,
                 Documents = documents.Select(d => new DocumentInfo(d.Id, d.Name, d.Pages)).ToList(),
                 Results = documents.SelectMany(d => viewers.Select(v => Summary.Of(v.Name, d.Id, runs[(v.Name, d.Id)]))).ToList(),
+                Versions = viewers.Where(v => v.Version is not null).ToDictionary(v => v.Name, v => v.Version!),
             };
             string json = Path.Combine(outDir, "results.json");
             results.Save(json);
