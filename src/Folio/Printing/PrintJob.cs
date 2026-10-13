@@ -63,7 +63,7 @@ internal static partial class PrintJob
                         {
                             try
                             {
-                                Draw(document, dc, sheet, placement, paper, dpiX, dpiY, offsetX, offsetY, request);
+                                Draw(document, dc, sheet, placement, paper, dpiX, dpiY, offsetX, offsetY, request, token);
                             }
                             catch (InvalidDataException)
                             {
@@ -125,7 +125,7 @@ internal static partial class PrintJob
     }
 
     private static void Draw(PdfDocument document, IntPtr dc, PrintSheet sheet, PagePlacement placement, PaperMetrics paper,
-        int dpiX, int dpiY, int offsetX, int offsetY, PrintRequest request)
+        int dpiX, int dpiY, int offsetX, int offsetY, PrintRequest request, CancellationToken token)
     {
         var (bounds, clip, quarter) = PrintLayout.OnPaper(sheet, placement, paper);
         RectInt32 ToDevice(Rect r)
@@ -135,7 +135,7 @@ internal static partial class PrintJob
             return new RectInt32(left - offsetX, top - offsetY, Math.Max(1, right - left), Math.Max(1, bottom - top));
         }
         document.DrawToDevice(dc, placement.Page, ToDevice(bounds), quarter, ToDevice(clip), Math.Max(dpiX, dpiY),
-            request.Annotations, request.Grayscale, request.AsImage);
+            request.Annotations, request.Grayscale, request.AsImage, token);
     }
 
     [StructLayout(LayoutKind.Sequential)]

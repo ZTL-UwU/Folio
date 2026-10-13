@@ -27,7 +27,15 @@ public sealed partial class PrintDialog : ContentDialog
     private readonly PdfDocument _document;
     private readonly string _title;
     private readonly int _currentPage;
-    private readonly List<SoftwareBitmapSource> _sources = [];
+    /// <summary>
+    /// The current sheet and those either side, by index, rendering or rendered for <see cref="_renderedFor"/>;
+    /// any change to that renders them again.
+    /// </summary>
+    private readonly Dictionary<int, SheetRender> _rendered = [];
+    private (List<PrintSheet> Sheets, double Pixels, bool Gray, bool Annotations) _renderedFor;
+    /// <summary>The render on the sheet, kept until another replaces it even once it's no longer in <see cref="_rendered"/>.</summary>
+    private SheetRender? _shown;
+    private int _previewVersion;
     private string? _defaultPrinter;
     private PrinterDetails? _printer;
     /// <summary>The printer's settings for the job, including ones only its own dialog can change.</summary>
@@ -43,8 +51,8 @@ public sealed partial class PrintDialog : ContentDialog
     private int _printerVersion, _paperVersion;
     /// <summary>Set while controls are filled in from code, so their change events don't each lay out again.</summary>
     private bool _updating;
-    private CancellationTokenSource? _previewCts, _printCts;
-    private bool _printing, _closeRequested;
+    private CancellationTokenSource? _printCts;
+    private bool _printing, _closeRequested, _closed;
     /// <summary>Why there's nothing to print, shown in place of the preview.</summary>
     private string? _problem;
 
@@ -115,8 +123,8 @@ public sealed partial class PrintDialog : ContentDialog
         Opened += OnOpened;
         Closed += (_, _) =>
         {
+            _closed = true;
             root.Changed -= OnRootChanged;
-            _previewCts?.Cancel();
             ReleaseImages();
         };
         root.Changed += OnRootChanged;
@@ -165,6 +173,7 @@ public sealed partial class PrintDialog : ContentDialog
         {
             names = [];
         }
+        if (_closed) return;
         if (names.Count == 0)
         {
             PrinterBox.PlaceholderText = "No printers";
@@ -250,9 +259,19 @@ public sealed partial class PrintDialog : ContentDialog
         if (version == _printerVersion) UpdateCanPrint();
     }
 
+    /// <summary>
+    /// Picks the paper with <paramref name="id"/>. One the printer doesn't list, such as a custom size
+    /// picked in its own dialog, leaves the list without a selection, so the job keeps the paper its
+    /// settings name.
+    /// </summary>
     private void SelectPaper(short? id)
     {
         if (_printer is null || _printer.Papers.Count == 0) return;
+        if (id is not null && _printer.Papers.All(p => p.Id != id))
+        {
+            PaperBox.SelectedItem = null;
+            return;
+        }
         var paper = _printer.Papers.FirstOrDefault(p => p.Id == id) ?? _printer.Papers[0];
         Choose(PaperBox, paper);
     }
@@ -274,7 +293,8 @@ public sealed partial class PrintDialog : ContentDialog
         job.Landscape = false;
         job.Copies = 1;
         job.Collate = false;
-        if (SelectedPaper is { } paper) job.PaperSize = paper.Id;
+        // Only a different paper: setting it drops the form name the printer's settings may carry.
+        if (SelectedPaper is { } paper && paper.Id != job.PaperSize) job.PaperSize = paper.Id;
         if (_printer is { IsColor: true }) job.Grayscale = Grayscale;
         if (_printer is { CanDuplex: true }) job.Duplex = TwoSidedChoice;
         return job;
@@ -322,6 +342,9 @@ public sealed partial class PrintDialog : ContentDialog
     {
         if (_printer is not { } printer || _settings is not { } settings) return;
         var job = JobSettings(settings);
+        // The printer's dialog shows the choices made here, though the job itself is always sent portrait.
+        bool landscape = Choice(OrientationBox, SheetOrientation.Automatic) == SheetOrientation.Landscape;
+        job.Landscape = landscape;
         job.Copies = (short)Copies;
         job.Collate = CollateBox.IsChecked == true;
         DevMode? result;
@@ -340,7 +363,8 @@ public sealed partial class PrintDialog : ContentDialog
         _settings = result;
         _updating = true;
         SelectPaper(result.PaperSize);
-        if (result.Landscape == true) Choose(OrientationBox, SheetOrientation.Landscape);
+        // Only a change: leaving it as shown keeps Automatic.
+        if (result.Landscape is { } turned && turned != landscape) Choose(OrientationBox, turned ? SheetOrientation.Landscape : SheetOrientation.Portrait);
         if (printer.IsColor && result.Grayscale is { } gray) Choose(ColorBox, gray);
         if (printer.CanDuplex && result.Duplex is { } duplex) Choose(DuplexBox, duplex);
         if (result.Copies is { } copies && copies > 0) CopiesBox.Value = copies;
@@ -520,14 +544,15 @@ public sealed partial class PrintDialog : ContentDialog
     }
 
     /// <summary>
-    /// Renders the current sheet. The previous one stays up until the new pages are ready, so
-    /// changing a setting doesn't flash an empty sheet.
+    /// Shows the current sheet, rendering it if it isn't already, and starts on the sheets either side
+    /// so stepping to them shows them straight away. The sheet on screen stays up until the new one is
+    /// ready, so changing a setting doesn't flash an empty sheet.
     /// </summary>
     private async void RenderPreview()
     {
-        if (_updating || Sheet is null) return;
-        _previewCts?.Cancel();
-        var cts = _previewCts = new CancellationTokenSource();
+        // Closed: nothing would release the images.
+        if (_updating || _closed || Sheet is null) return;
+        int version = ++_previewVersion;
 
         PreviousSheetButton.IsEnabled = _sheetIndex > 0;
         NextSheetButton.IsEnabled = _sheetIndex < _sheets.Count - 1;
@@ -542,49 +567,41 @@ public sealed partial class PrintDialog : ContentDialog
         double availableWidth = PreviewHost.ActualWidth, availableHeight = PreviewHost.ActualHeight;
         if (!_paperKnown || availableWidth <= 0 || availableHeight <= 0) return;
 
-        var sheet = _sheets[_sheetIndex];
+        int index = _sheetIndex;
+        var sheet = _sheets[index];
         double k = Math.Min(availableWidth / sheet.Paper.Width, availableHeight / sheet.Paper.Height);
         double pixels = k * (XamlRoot?.RasterizationScale ?? 1);
         bool gray = Grayscale, annotations = AnnotationsBox.IsChecked == true;
 
-        async Task<(Rect Visible, SoftwareBitmapSource? Source)> RenderAsync(PagePlacement placement)
+        var key = (_sheets, pixels, gray, annotations);
+        if (_renderedFor != key)
         {
-            var visible = placement.Bounds;
-            visible.Intersect(placement.Clip);
-            if (visible.IsEmpty || visible.Width <= 0 || visible.Height <= 0) return (visible, null);
-            var size = _document.PageSizes[placement.Page];
-            double scale = pixels * placement.Bounds.Width / size.Width;
-            var region = new RectInt32(
-                (int)Math.Round((visible.X - placement.Bounds.X) * pixels), (int)Math.Round((visible.Y - placement.Bounds.Y) * pixels),
-                Math.Max(1, (int)Math.Round(visible.Width * pixels)), Math.Max(1, (int)Math.Round(visible.Height * pixels)));
-            try
-            {
-                using var buffer = await _document.RenderAsync(placement.Page, scale, 0, region, false, WorkPriority.Visible, cts.Token, printing: true, annotations, gray);
-                if (buffer is null || cts.IsCancellationRequested) return (visible, null);
-                return (visible, await PageView.ToSourceAsync(buffer));
-            }
-            catch (InvalidDataException)
-            {
-                return (visible, null);
-            }
+            ForgetRendered(_ => true);
+            _renderedFor = key;
         }
+        ForgetRendered(i => Math.Abs(i - index) > 1);
+        SheetRender Render(int i, WorkPriority priority)
+        {
+            if (!_rendered.TryGetValue(i, out var render))
+                _rendered[i] = render = new SheetRender(_document, _sheets[i], pixels, gray, annotations, priority);
+            return render;
+        }
+        var current = Render(index, WorkPriority.Visible);
+        if (index + 1 < _sheets.Count) Render(index + 1, WorkPriority.Normal);
+        if (index > 0) Render(index - 1, WorkPriority.Normal);
 
-        (Rect Visible, SoftwareBitmapSource? Source)[] pages;
-        try
+        var pages = await current.Pages;
+        if (pages is null)
         {
-            pages = await Task.WhenAll(sheet.Pages.Select(RenderAsync));
-        }
-        catch (Exception ex) when (ex is OperationCanceledException or ObjectDisposedException)
-        {
+            // Failed, or stopped because it's no longer wanted: either way the next time it's shown starts again.
+            if (_rendered.TryGetValue(index, out var render) && render == current) ForgetRendered(i => i == index);
             return;
         }
-        if (cts.IsCancellationRequested)
-        {
-            foreach (var (_, source) in pages) source?.Dispose();
-            return;
-        }
+        if (version != _previewVersion || _closed) return;
 
-        ReleaseImages();
+        SheetCanvas.Children.Clear();
+        if (_shown is { } old && old != current && !_rendered.ContainsValue(old)) old.Release();
+        _shown = current;
         SheetCanvas.Width = sheet.Paper.Width * k;
         SheetCanvas.Height = sheet.Paper.Height * k;
         Sheet.Visibility = Visibility.Visible;
@@ -592,7 +609,6 @@ public sealed partial class PrintDialog : ContentDialog
         foreach (var (visible, source) in pages)
         {
             if (source is null) continue;
-            _sources.Add(source);
             var image = new Image { Source = source, Stretch = Stretch.Fill, Width = visible.Width * k, Height = visible.Height * k };
             Canvas.SetLeft(image, visible.X * k);
             Canvas.SetTop(image, visible.Y * k);
@@ -600,11 +616,91 @@ public sealed partial class PrintDialog : ContentDialog
         }
     }
 
+    /// <summary>Lets go of the rendered sheets <paramref name="match"/> picks; the one on screen is kept until it's replaced.</summary>
+    private void ForgetRendered(Func<int, bool> match)
+    {
+        foreach (int i in _rendered.Keys.Where(match).ToList())
+        {
+            var render = _rendered[i];
+            _rendered.Remove(i);
+            if (render != _shown) render.Release();
+        }
+    }
+
     private void ReleaseImages()
     {
         SheetCanvas.Children.Clear();
-        foreach (var source in _sources) source.Dispose();
-        _sources.Clear();
+        ForgetRendered(_ => true);
+        _shown?.Release();
+        _shown = null;
+    }
+
+    /// <summary>A sheet's pages rendering, or rendered, for the preview.</summary>
+    private sealed class SheetRender
+    {
+        private readonly CancellationTokenSource _cts = new();
+        private bool _released;
+
+        public SheetRender(PdfDocument document, PrintSheet sheet, double pixels, bool gray, bool annotations, WorkPriority priority) =>
+            Pages = RenderAsync(document, sheet, pixels, gray, annotations, priority, _cts.Token);
+
+        /// <summary>Where each page shows on the sheet and its image, or null if the sheet couldn't be rendered.</summary>
+        public Task<(Rect Visible, SoftwareBitmapSource? Source)[]?> Pages { get; }
+
+        /// <summary>Stops the render if it's still going, and releases the images once it's done.</summary>
+        public async void Release()
+        {
+            if (_released) return;
+            _released = true;
+            _cts.Cancel();
+            if (await Pages is { } pages)
+            {
+                foreach (var (_, source) in pages) source?.Dispose();
+            }
+            _cts.Dispose();
+        }
+
+        private static async Task<(Rect Visible, SoftwareBitmapSource? Source)[]?> RenderAsync(PdfDocument document, PrintSheet sheet,
+            double pixels, bool gray, bool annotations, WorkPriority priority, CancellationToken token)
+        {
+            async Task<(Rect Visible, SoftwareBitmapSource? Source)> RenderPageAsync(PagePlacement placement)
+            {
+                var visible = placement.Bounds;
+                visible.Intersect(placement.Clip);
+                if (visible.IsEmpty || visible.Width <= 0 || visible.Height <= 0) return (visible, null);
+                var size = document.PageSizes[placement.Page];
+                double scale = pixels * placement.Bounds.Width / size.Width;
+                var region = new RectInt32(
+                    (int)Math.Round((visible.X - placement.Bounds.X) * pixels), (int)Math.Round((visible.Y - placement.Bounds.Y) * pixels),
+                    Math.Max(1, (int)Math.Round(visible.Width * pixels)), Math.Max(1, (int)Math.Round(visible.Height * pixels)));
+                try
+                {
+                    using var buffer = await document.RenderAsync(placement.Page, scale, 0, region, false, priority, token, printing: true, annotations, gray);
+                    if (buffer is null || token.IsCancellationRequested) return (visible, null);
+                    return (visible, await PageView.ToSourceAsync(buffer));
+                }
+                catch (InvalidDataException)
+                {
+                    return (visible, null);
+                }
+            }
+
+            var renders = sheet.Pages.Select(RenderPageAsync).ToArray();
+            try
+            {
+                await Task.WhenAll(renders);
+            }
+            catch (Exception ex) when (ex is OperationCanceledException or ObjectDisposedException or System.Runtime.InteropServices.COMException)
+            {
+                // The pages that were ready before one was stopped or failed to upload.
+                foreach (var render in renders)
+                {
+                    if (render.IsCompletedSuccessfully) render.Result.Source?.Dispose();
+                }
+                return null;
+            }
+            return renders.Select(r => r.Result).ToArray();
+        }
     }
 
     // ================================================================ printing
@@ -631,16 +727,9 @@ public sealed partial class PrintDialog : ContentDialog
         }
         ErrorBar.IsOpen = false;
 
-        string? output = null;
-        if (printer.OutputExtension is { } extension)
-        {
-            // Printers that make a file would ask for its name themselves, in a dialog that can open behind this window.
-            output = await PickOutputAsync(extension);
-            if (output is null) return;
-        }
-
         var job = JobSettings(settings);
         bool twoSided = TwoSidedChoice != TwoSided.Off;
+        // Printing from here on, file picker included, so another Print does nothing and closing cancels.
         SetPrinting(true);
         ProgressText.Text = "Preparing…";
         PrintProgress.Value = 0;
@@ -653,6 +742,13 @@ public sealed partial class PrintDialog : ContentDialog
         });
         try
         {
+            string? output = null;
+            if (printer.OutputExtension is { } extension)
+            {
+                // Printers that make a file would ask for its name themselves, in a dialog that can open behind this window.
+                output = await PickOutputAsync(extension) ?? throw new OperationCanceledException();
+                cts.Token.ThrowIfCancellationRequested();
+            }
             job = await Task.Run(() => Printers.Merge(printer.Name, job));
             var request = new PrintRequest(printer.Name, job, _title, output, pages, Layout, Copies, CollateBox.IsChecked == true, twoSided,
                 AnnotationsBox.IsChecked == true, Grayscale, ImageBox.IsChecked == true);

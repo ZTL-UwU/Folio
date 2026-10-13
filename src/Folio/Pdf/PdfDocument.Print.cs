@@ -14,10 +14,11 @@ public sealed unsafe partial class PdfDocument
     /// in device pixels, turned clockwise by <paramref name="quarter"/> quarter turns and cut off at
     /// <paramref name="clip"/>. Pages go to the printer as vector output, so text stays sharp at any
     /// resolution, except with <paramref name="asImage"/> and for pages with form fields, which PDFium
-    /// only draws into bitmaps. Call on the <see cref="PdfWorker"/> thread.
+    /// only draws into bitmaps. Cancelling <paramref name="token"/> stops a page being drawn as an image.
+    /// Call on the <see cref="PdfWorker"/> thread.
     /// </summary>
     internal void DrawToDevice(IntPtr dc, int index, RectInt32 bounds, int quarter, RectInt32 clip, int deviceDpi,
-        bool annotations, bool grayscale, bool asImage)
+        bool annotations, bool grayscale, bool asImage, CancellationToken token = default)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         if (index < 0 || index >= PageCount || bounds.Width <= 0 || bounds.Height <= 0) return;
@@ -30,7 +31,7 @@ public sealed unsafe partial class PdfDocument
         {
             if (asImage || (annotations && HasFormFields(page)))
             {
-                DrawAsImage(dc, page, bounds, quarter, clip, deviceDpi, flags);
+                DrawAsImage(dc, page, bounds, quarter, clip, deviceDpi, flags, token);
                 return;
             }
             IntersectClipRect(dc, clip.X, clip.Y, clip.X + clip.Width, clip.Y + clip.Height);
@@ -57,7 +58,7 @@ public sealed unsafe partial class PdfDocument
         return false;
     }
 
-    private void DrawAsImage(IntPtr dc, IntPtr page, RectInt32 bounds, int quarter, RectInt32 clip, int deviceDpi, int flags)
+    private void DrawAsImage(IntPtr dc, IntPtr page, RectInt32 bounds, int quarter, RectInt32 clip, int deviceDpi, int flags, CancellationToken token)
     {
         // Only the part of the page that's printed.
         int left = Math.Max(bounds.X, clip.X), top = Math.Max(bounds.Y, clip.Y);
@@ -75,7 +76,7 @@ public sealed unsafe partial class PdfDocument
         if (bitmap == IntPtr.Zero) throw new InvalidDataException("There isn't enough memory to print the page.");
         try
         {
-            RenderOnto(bitmap, p, width, height, page, x, y, sizeX, sizeY, quarter, flags, CancellationToken.None);
+            RenderOnto(bitmap, p, width, height, page, x, y, sizeX, sizeY, quarter, flags, token);
         }
         finally
         {

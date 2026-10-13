@@ -292,6 +292,7 @@
                         <ComboBox
                             x:Name="PaperBox"
                             Header="Paper size"
+                            PlaceholderText="Set by the printer"
                             SelectionChanged="OnPaperChanged" />
                         <ComboBox
                             x:Name="PerSheetBox"
