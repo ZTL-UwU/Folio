@@ -7,7 +7,7 @@ dotnet publish src/Folio/Folio.csproj -c Release -p:Platform=x64 -r win-x64 -p:W
 dotnet publish src/Folio/Folio.csproj -c Release -p:Platform=ARM64 -r win-arm64 -p:WindowsPackageType=MSIX
 ```
 
-Building the package also needs Visual Studio's C++ build tools ("Desktop development with C++", plus the ARM64 tools for the ARM64 package): it includes the File Explorer thumbnail handler, `src/Folio.Thumbnails`, a COM server published with Native AOT. The manifest registers it for `.pdf` in a COM surrogate (`dllhost.exe`), and it renders page 1 with the package's `pdfium.dll`. Windows uses it only while packaged Folio is the default PDF app, since packaged handlers attach to the app's own file type, not to `.pdf` itself.
+Like any publish, building the package needs Visual Studio's C++ build tools ("Desktop development with C++", plus the ARM64 tools for the ARM64 package), as Folio and the File Explorer thumbnail handler it includes, `src/Folio.Thumbnails`, are compiled with Native AOT. The handler is a COM server. The manifest registers it for `.pdf` in a COM surrogate (`dllhost.exe`), and it renders page 1 with the package's `pdfium.dll`. Windows uses it only while packaged Folio is the default PDF app, since packaged handlers attach to the app's own file type, not to `.pdf` itself.
 
 Packages land in `out\AppPackages\`. CI's `msix` job combines them into `Folio_<version>.msixbundle` for Partner Center. They're unsigned; the Store signs them.
 

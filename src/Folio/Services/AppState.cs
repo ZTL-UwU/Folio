@@ -84,7 +84,7 @@ public static class AppState
 
     public static IReadOnlyList<RecentDocument> Recent
     {
-        get { lock (Gate) return [.. _state.Recent]; }
+        get { lock (Gate) return _state.Recent.ToArray(); }
     }
 
     public static RecentDocument? Find(string path)

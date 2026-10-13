@@ -3,6 +3,9 @@
     <OutputType>WinExe</OutputType>
     <TargetFramework>net10.0-windows10.0.26100.0</TargetFramework>
     <TargetPlatformMinVersion>10.0.22621.0</TargetPlatformMinVersion>
+    <!-- Newer than the .NET SDK's default Windows SDK projection: C#/WinRT 2.3.1 makes
+         PrintManagerInterop.ShowPrintUIForWindowAsync work under Native AOT (microsoft/CsWinRT#1871). -->
+    <WindowsSdkPackageVersion>10.0.26100.87</WindowsSdkPackageVersion>
     <RootNamespace>Folio</RootNamespace>
     <AssemblyName>Folio</AssemblyName>
     <Version>1.0.0</Version>
@@ -22,8 +25,13 @@
     <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
     <!-- Program.cs checks for a running instance before starting XAML. -->
     <DefineConstants>$(DefineConstants);DISABLE_XAML_GENERATED_MAIN</DefineConstants>
-    <!-- `dotnet publish` (what CI ships) precompiles the code, so less is JIT-compiled at startup. -->
-    <PublishReadyToRun>true</PublishReadyToRun>
+    <!-- `dotnet publish` (what CI ships) compiles the app with Native AOT, so nothing is JIT-compiled
+         at startup. Like the thumbnail handler, that needs the MSVC linker (Visual Studio's C++ build
+         tools); `dotnet build` still runs on the JIT. -->
+    <PublishAot>true</PublishAot>
+    <!-- Also warns about classes that implement .NET interfaces C#/WinRT maps to WinRT ones (IDisposable,
+         collections) without being partial, which breaks them under AOT if they're handed to WinRT. -->
+    <CsWinRTAotWarningLevel>2</CsWinRTAotWarningLevel>
     <!-- Both builds bundle .NET, trimmed on publish to the code Folio actually reaches. Trimming
          needs a self-contained build; it also means users don't have to install .NET. -->
     <SelfContained>true</SelfContained>
@@ -47,7 +55,7 @@
   </PropertyGroup>
   <!-- The package also registers the File Explorer thumbnail handler (see Package.appxmanifest). It's a
        Native AOT DLL, published here for the same architecture and copied into the package root next to
-       pdfium.dll. Native AOT needs Visual Studio's C++ build tools, so the unpackaged build skips it. -->
+       pdfium.dll. Only the package registers it, so the unpackaged build leaves it out. -->
   <PropertyGroup Condition="'$(WindowsPackageType)' == 'MSIX'">
     <ThumbnailsProject>$(MSBuildThisFileDirectory)..\Folio.Thumbnails\Folio.Thumbnails.csproj</ThumbnailsProject>
     <DotNetHost>$(DOTNET_HOST_PATH)</DotNetHost>
@@ -71,6 +79,14 @@
   <PropertyGroup Condition="'$(RuntimeIdentifier)' == ''">
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
   </PropertyGroup>
+  <!-- C#/WinRT finds the .NET class for an object coming from WinUI by its runtime class name, which
+       needs the class's metadata. Trimmed away, the object only gets the declared type, so casts like
+       `ItemsPanelRoot is ItemsWrapGrid` or `GetFocusedElement(...) is TextBox` quietly fail; this keeps
+       every WinUI (and AppWindow) class. -->
+  <ItemGroup>
+    <TrimmerRootAssembly Include="Microsoft.WinUI" />
+    <TrimmerRootAssembly Include="Microsoft.InteractiveExperiences.Projection" />
+  </ItemGroup>
   <ItemGroup>
     <Content Include="Assets\**" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>

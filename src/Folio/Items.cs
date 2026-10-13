@@ -9,7 +9,7 @@ using Microsoft.UI.Xaml.Media;
 
 namespace Folio;
 
-public abstract class ObservableItem : INotifyPropertyChanged
+public abstract partial class ObservableItem : INotifyPropertyChanged
 {
     public event PropertyChangedEventHandler? PropertyChanged;
 
@@ -23,7 +23,7 @@ public abstract class ObservableItem : INotifyPropertyChanged
     protected void Raise(string name) => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
 }
 
-public sealed class RecentItem(RecentDocument entry) : ObservableItem
+public sealed partial class RecentItem(RecentDocument entry) : ObservableItem
 {
     private ImageSource? _thumbnail;
 
@@ -57,7 +57,7 @@ public sealed class RecentItem(RecentDocument entry) : ObservableItem
     }
 }
 
-public sealed class ThumbnailItem : ObservableItem
+public sealed partial class ThumbnailItem : ObservableItem
 {
     private ImageSource? _image;
     private Brush _paper = new SolidColorBrush(Colors.White);

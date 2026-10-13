@@ -1,19 +1,19 @@
 # Building
 
-Requires Windows 11 and the .NET 10 SDK (no Visual Studio needed).
+Requires Windows 11 and the .NET 10 SDK. Publishing also needs Visual Studio's C++ build tools ("Desktop development with C++", plus the ARM64 tools for ARM64), which Native AOT links with.
 
 ```powershell
 dotnet build src/Folio/Folio.csproj -c Release
 src\Folio\bin\Release\net10.0-windows10.0.26100.0\win-x64\Folio.exe [file.pdf]
 dotnet test tests/Folio.Tests
-dotnet publish src/Folio/Folio.csproj -c Release -o out\win-x64   # ReadyToRun, as CI ships
+dotnet publish src/Folio/Folio.csproj -c Release -o out\win-x64   # Native AOT, as CI ships
 ```
 
 For ARM64, add `-p:Platform=ARM64` (plus `-r win-arm64` when publishing). CI (`.github/workflows/build.yml`) publishes both architectures, verifies the bundled `pdfium.dll`, `Folio.pri` and license files, and runs the tests.
 
 The tests build the UI-free code (`src/Folio/Pdf`, `Services/LaunchPolicy.cs`, the thumbnail handler in `src/Folio.Thumbnails`) against the real PDFium and generate their own PDFs.
 
-The app is unpackaged and self-contained: it bundles .NET and the Windows App SDK 2.5 runtime. It references only the WinUI and Foundation components, not the `Microsoft.WindowsAppSDK` meta-package (whose AI/ML parts add ~60 MB). `dotnet publish` trims the output, so test a published build after adding reflection-based code. PDFium comes from the `bblanchon.PDFium.Win32` package.
+The app is unpackaged and self-contained: it bundles .NET and the Windows App SDK 2.5 runtime. It references only the WinUI and Foundation components, not the `Microsoft.WindowsAppSDK` meta-package (whose AI/ML parts add ~60 MB). `dotnet publish` compiles it with Native AOT, which trims the output and can't JIT, so test a published build after adding reflection-based code; classes that WinUI holds on to (items, controls) must be `partial`. PDFium comes from the `bblanchon.PDFium.Win32` package.
 
 For the Store package, see [Packaging](packaging.md).
 
