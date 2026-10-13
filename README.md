@@ -10,6 +10,12 @@ A simple PDF viewer for Windows 11, modeled on [GNOME Papers](https://apps.gnome
 dotnet build src/Folio/Folio.csproj -c Release
 ```
 
+## Performance
+
+<p align="center">
+  <img alt="Time to first page and memory use of Folio, Microsoft Edge and Adobe Acrobat" src="./.github/assets/benchmark.png" />
+</p>
+
 ## Credits
 
 - [GNOME Papers](https://apps.gnome.org/Papers/) for inspiration
