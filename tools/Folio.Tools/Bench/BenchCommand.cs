@@ -9,7 +9,7 @@ namespace Folio.Tools.Bench;
 /// </summary>
 /// <remarks>
 /// Each run starts a viewer on a benchmark document (see <see cref="Documents"/>) and watches its windows until
-/// page 1's magenta band covers --fraction of one (<see cref="WindowCapture"/>). Covered windows count too, so the
+/// page 1's magenta band covers --fraction of one (<see cref="WindowCapture"/>), keeping them in front meanwhile. The
 /// machine can be used during a run, though that adds noise. Viewers are closed between runs, and every
 /// document/viewer pair gets --warmup runs that aren't recorded first, so the numbers are warm starts (files in the
 /// OS cache). Viewers take turns, to spread out noise.
@@ -125,6 +125,7 @@ internal static class BenchCommand
         string csv = Path.Combine(outDir, "runs.csv");
         File.WriteAllText(csv, "App,Document,Run,WindowMs,PageMs,DetectedMs,MemoryMB,PeakMemoryMB,WorkingSetMB,CommitMB,Processes,Error\n");
         int width = viewers.Max(v => v.Name.Length);
+        bool warnedLocked = false;
 
         try
         {
@@ -146,6 +147,11 @@ internal static class BenchCommand
                     foreach (var viewer in viewers)
                     {
                         string? frame = saveFrames ? Path.Combine(outDir, "frames", $"{viewer.Name}-{document.Id}-{label.Replace('/', '-').Replace(' ', '-')}.png") : null;
+                        if (!warnedLocked && Native.IsSessionLocked())
+                        {
+                            Console.WriteLine("The screen is locked: viewers start and draw more slowly, so these numbers will be higher than usual.");
+                            warnedLocked = true;
+                        }
                         var started = DateTime.Now.AddSeconds(-1);
                         // Warm-up runs only load the files into the OS cache; their memory isn't recorded.
                         var result = await Measurement.RunAsync(viewer, document.Path, settings, device, frame, timeOnly: run <= 0);

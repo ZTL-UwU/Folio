@@ -7,6 +7,10 @@ internal static class Native
     public const uint PROCESS_QUERY_LIMITED_INFORMATION = 0x1000, PROCESS_VM_READ = 0x10, STILL_ACTIVE = 259;
     public const uint TH32CS_SNAPPROCESS = 0x2;
     public const int DWMWA_CLOAKED = 14;
+    public static readonly IntPtr HWND_TOP = IntPtr.Zero, HWND_TOPMOST = new(-1);
+    public const uint SWP_NOSIZE = 0x1, SWP_NOMOVE = 0x2, SWP_NOACTIVATE = 0x10, SWP_ASYNCWINDOWPOS = 0x4000;
+    public const int GWL_EXSTYLE = -20, WS_EX_TOPMOST = 0x8;
+    public const int WTS_CURRENT_SESSION = -1, WTSSessionInfoEx = 25, WTS_SESSIONSTATE_LOCK = 0;
 
     [StructLayout(LayoutKind.Sequential)]
     public struct PROCESS_MEMORY_COUNTERS_EX2
@@ -53,6 +57,25 @@ internal static class Native
     [DllImport("user32.dll")] public static extern bool IsIconic(IntPtr hwnd);
     [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr hwnd, out RECT rect);
     [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr hwnd, out uint pid);
+    [DllImport("user32.dll")] public static extern bool SetWindowPos(IntPtr hwnd, IntPtr insertAfter, int x, int y, int cx, int cy, uint flags);
+    [DllImport("user32.dll")] public static extern int GetWindowLong(IntPtr hwnd, int index);
+    [DllImport("wtsapi32.dll")] public static extern bool WTSQuerySessionInformation(IntPtr server, int sessionId, int infoClass, out IntPtr buffer, out int bytes);
+    [DllImport("wtsapi32.dll")] public static extern void WTSFreeMemory(IntPtr memory);
+
+    /// <summary>Whether this session's screen is locked.</summary>
+    public static bool IsSessionLocked()
+    {
+        if (!WTSQuerySessionInformation(IntPtr.Zero, WTS_CURRENT_SESSION, WTSSessionInfoEx, out var buffer, out _)) return false;
+        try
+        {
+            // WTSINFOEXW: a level number, then WTSINFOEX_LEVEL1_W (8-byte aligned) whose third field is SessionFlags.
+            return Marshal.ReadInt32(buffer, 16) == WTS_SESSIONSTATE_LOCK;
+        }
+        finally
+        {
+            WTSFreeMemory(buffer);
+        }
+    }
     [DllImport("dwmapi.dll")] public static extern int DwmGetWindowAttribute(IntPtr hwnd, int attribute, out int value, int size);
 
     [DllImport("d3d11.dll")]

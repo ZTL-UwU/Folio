@@ -64,7 +64,7 @@ internal sealed class Measurement
         WindowCapture? hit = null;
         try
         {
-            double lastTree = double.MinValue, lastMemory = double.MinValue;
+            double lastTree = double.MinValue, lastMemory = double.MinValue, lastRaise = double.MinValue;
             while (Elapsed() < settings.TimeoutSeconds * 1000)
             {
                 double now = Elapsed();
@@ -83,6 +83,11 @@ internal sealed class Measurement
                 {
                     result.WindowMs ??= Elapsed();
                     if (!captures.ContainsKey(hwnd)) captures[hwnd] = WindowCapture.TryStart(hwnd, device, settings.MarkerFraction, launched);
+                }
+                if (now - lastRaise >= 100)
+                {
+                    foreach (var hwnd in captures.Keys) WindowCapture.BringToFront(hwnd);
+                    lastRaise = now;
                 }
 
                 hit = captures.Values.Where(c => c?.MatchTime is not null).MinBy(c => c!.MatchTime);

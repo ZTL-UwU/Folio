@@ -17,12 +17,9 @@ internal static class Chart
         var documents = results.Documents.Where(d => results.Results.Any(r => r.Document == d.Id)).ToList();
         string time = Panel(results, documents, apps, s => s.PageMs, "ms", out int height);
         string memory = Panel(results, documents, apps, s => s.MemoryMB, "MB", out _);
-        string runs = results.Runs == 1 ? "One warm start" : $"Median of {results.Runs} warm starts";
-        string footer = $"{runs} on {results.Machine}, {results.Windows}. " +
-            $"Memory is the private working set of all the viewer's processes once it settles, at most {results.SettleSeconds:0.#} s after page 1 appears.";
 
-        // 28 px padding, 20 px headings, 6 px gap, the plots, 14 px gap, 16 px footer, 22 px padding.
-        int pageHeight = 28 + 20 + 6 + height + 14 + 16 + 22;
+        // 28 px padding, 20 px headings, 6 px gap, the plots, 28 px padding.
+        int pageHeight = 28 + 20 + 6 + height + 28;
         string html = $$"""
             <!DOCTYPE html>
             <html lang="en">
@@ -32,14 +29,13 @@ internal static class Chart
               * { box-sizing: border-box; margin: 0; }
               html, body { width: {{Width}}px; height: {{pageHeight}}px; background: transparent; }
               /* 12 px at 2x, the same 24 px corner as .github/assets/hero.png. On a wrapper, as on body it would paint the whole page. */
-              main { width: 100%; height: 100%; background: #fff; border-radius: 12px; padding: 28px 36px 22px;
+              main { width: 100%; height: 100%; background: #fff; border-radius: 12px; padding: 28px 36px;
                      font-family: "Segoe UI Variable Text", "Segoe UI", sans-serif; color: #1b2a41; }
               .panels { display: grid; grid-template-columns: 1fr 1fr; gap: 40px; }
               h2 { font-size: 15px; line-height: 20px; font-weight: 600; }
               h2 span { font-weight: 400; color: #74839a; }
               svg { display: block; margin-top: 6px; }
               svg text { font-family: inherit; }
-              footer { margin-top: 14px; font-size: 11px; line-height: 16px; color: #8592a6; }
             </style>
             </head>
             <body>
@@ -48,7 +44,6 @@ internal static class Chart
                 <section><h2>Time to first page <span>· ms, lower is better</span></h2>{{time}}</section>
                 <section><h2>Memory <span>· MB, lower is better</span></h2>{{memory}}</section>
               </div>
-              <footer>{{HtmlEncode(footer)}}</footer>
             </main>
             </body>
             </html>

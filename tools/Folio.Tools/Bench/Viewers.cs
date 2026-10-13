@@ -59,8 +59,13 @@ internal sealed class Viewer : IDisposable
 
             case "Edge":
                 if (Apps.Edge() is not { } edge) return null;
-                // A profile of its own keeps it apart from an Edge that's already running, so there's nothing to close.
-                string flags = $"--user-data-dir={Quote(scratch)} --no-first-run --no-default-browser-check --hide-crash-restore-bubble --new-window";
+                // A blank profile of its own, which keeps it apart from an Edge that's already running (so there's nothing
+                // to close) and from the user's settings and extensions. Without the other switches, Edge signs the new
+                // profile in with the Windows account and downloads components and experiments, which change from one
+                // session to the next.
+                string flags = $"--user-data-dir={Quote(scratch)} --no-first-run --no-default-browser-check --hide-crash-restore-bubble " +
+                    "--allow-browser-signin=false --disable-sync --disable-extensions --disable-default-apps " +
+                    "--disable-background-networking --disable-component-update --new-window";
                 return new Viewer { Name = name, Exe = edge, Arguments = f => $"{flags} {Quote(f)}", Scratch = scratch };
 
             case "Acrobat":

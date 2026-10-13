@@ -216,6 +216,21 @@ internal sealed class WindowCapture : IDisposable
         return list;
     }
 
+    /// <summary>
+    /// Puts a viewer window in front, without taking the focus from what the user is doing. Windows doesn't let a viewer
+    /// started from a console in the background take the foreground, so its window can open behind other windows,
+    /// where some viewers stop drawing. Topmost keeps it in front until the run closes it; viewers that refuse that
+    /// (Acrobat) are moved to the top of the other windows instead, which this repeats if the user brings another
+    /// window to the front. Asynchronous, so a viewer that's busy starting up doesn't hold up the timing.
+    /// </summary>
+    public static void BringToFront(IntPtr hwnd)
+    {
+        if ((Native.GetWindowLong(hwnd, Native.GWL_EXSTYLE) & Native.WS_EX_TOPMOST) != 0) return;
+        const uint Flags = Native.SWP_NOMOVE | Native.SWP_NOSIZE | Native.SWP_NOACTIVATE | Native.SWP_ASYNCWINDOWPOS;
+        Native.SetWindowPos(hwnd, Native.HWND_TOPMOST, 0, 0, 0, 0, Flags);
+        Native.SetWindowPos(hwnd, Native.HWND_TOP, 0, 0, 0, 0, Flags);
+    }
+
     public static List<IntPtr> TopLevelWindows()
     {
         var list = new List<IntPtr>();
