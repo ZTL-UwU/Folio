@@ -133,8 +133,10 @@ public sealed class TextLayout
             // Blocks moved next to each other are still separate lines.
             if (k < n - 1 && end > start && codePoints[end - 1] != '\n')
             {
-                newCodePoints.AddRange(['\r', '\n']);
-                newBoxes.AddRange([Rect.Empty, Rect.Empty]);
+                newCodePoints.Add('\r');
+                newCodePoints.Add('\n');
+                newBoxes.Add(Rect.Empty);
+                newBoxes.Add(Rect.Empty);
             }
         }
         return ([.. newCodePoints], [.. newBoxes], map);
