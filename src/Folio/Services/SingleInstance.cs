@@ -6,9 +6,9 @@ using System.Text;
 namespace Folio.Services;
 
 /// <summary>
-/// Keeps one Folio process per user session. Later launches hand their files to the running
-/// process over a named pipe and exit, so there is a single writer of the persisted state and
-/// opening several PDFs from Explorer doesn't start several processes.
+/// Keeps one Folio process per user session and copy of Folio. Later launches hand their files to
+/// the running process over a named pipe and exit, so there is a single writer of the persisted
+/// state and opening several PDFs from Explorer doesn't start several processes.
 /// </summary>
 internal static class SingleInstance
 {
@@ -17,8 +17,10 @@ internal static class SingleInstance
     private const int MaxPaths = 256;
 
     // The mutex is per session (Local\); the pipe namespace is machine wide, hence the session id.
-    // CurrentUserOnly restricts the pipe to this user on both ends.
-    private static readonly string Name = $"Folio-{WindowsIdentity.GetCurrent().User?.Value ?? Environment.UserName}-{System.Diagnostics.Process.GetCurrentProcess().SessionId}";
+    // CurrentUserOnly restricts the pipe to this user on both ends. Copies in other folders (another
+    // version, or development builds from other checkouts) run on their own instead of handing
+    // their files to this one.
+    private static readonly string Name = $"Folio-{WindowsIdentity.GetCurrent().User?.Value ?? Environment.UserName}-{System.Diagnostics.Process.GetCurrentProcess().SessionId}-{CopyId()}";
     private static Mutex? _mutex;
 
     /// <summary>True if this process is the first one in the session; it should then call <see cref="Listen"/>.</summary>
@@ -134,6 +136,10 @@ internal static class SingleInstance
             // The other side went away or took too long.
         }
     }
+
+    /// <summary>A short hash of the folder Folio runs from.</summary>
+    private static string CopyId() =>
+        Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(Encoding.UTF8.GetBytes(AppContext.BaseDirectory.ToUpperInvariant())))[..8];
 
     [DllImport("kernel32.dll", SetLastError = true)]
     private static extern bool GetNamedPipeServerProcessId(IntPtr pipe, out uint serverProcessId);
