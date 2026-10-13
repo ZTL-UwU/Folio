@@ -5,6 +5,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Printing;
+using System.Runtime.InteropServices;
 using Windows.Graphics;
 using Windows.Graphics.Printing;
 
@@ -95,7 +96,59 @@ internal static class PrintService
         Windows.Foundation.TypedEventHandler<PrintManager, PrintTaskRequestedEventArgs> handler = OnRequested;
         Handlers[hwnd] = handler;
         manager.PrintTaskRequested += handler;
-        await PrintManagerInterop.ShowPrintUIForWindowAsync(hwnd);
+        await ShowPrintUIAsync(hwnd);
+    }
+
+    /// <summary>
+    /// <see cref="PrintManagerInterop.ShowPrintUIForWindowAsync"/> without its IAsyncOperation&lt;bool&gt;, which the
+    /// SDK marshals by reflection and so fails in the Native AOT build. This asks for the operation as a
+    /// plain IAsyncInfo instead and polls it, as there's no completion callback without the generic interface.
+    /// </summary>
+    private static async Task ShowPrintUIAsync(IntPtr hwnd)
+    {
+        IntPtr info = StartShowPrintUI(hwnd);
+        try
+        {
+            Windows.Foundation.AsyncStatus status;
+            int error;
+            while ((status = GetAsyncStatus(info, out error)) == Windows.Foundation.AsyncStatus.Started) await Task.Delay(100);
+            if (status == Windows.Foundation.AsyncStatus.Error) Marshal.ThrowExceptionForHR(error);
+        }
+        finally
+        {
+            Marshal.Release(info);
+        }
+    }
+
+    // IPrintManagerInterop and IAsyncInfo are called through their vtables, like IMemoryBufferByteAccess in PageView.
+    private static unsafe IntPtr StartShowPrintUI(IntPtr hwnd)
+    {
+        var interopIid = new Guid("c5435a42-8d43-4e7b-a68a-ef311e392087");
+        var asyncInfoIid = new Guid("00000036-0000-0000-c000-000000000046");
+        var factory = WinRT.ActivationFactory.Get("Windows.Graphics.Printing.PrintManager");
+        Marshal.ThrowExceptionForHR(Marshal.QueryInterface(factory.ThisPtr, in interopIid, out IntPtr interop));
+        try
+        {
+            IntPtr info;
+            var show = (delegate* unmanaged[Stdcall]<IntPtr, IntPtr, Guid*, IntPtr*, int>)(*(void***)interop)[7];
+            Marshal.ThrowExceptionForHR(show(interop, hwnd, &asyncInfoIid, &info));
+            return info;
+        }
+        finally
+        {
+            Marshal.Release(interop);
+        }
+    }
+
+    private static unsafe Windows.Foundation.AsyncStatus GetAsyncStatus(IntPtr info, out int error)
+    {
+        var vtable = *(void***)info;
+        Windows.Foundation.AsyncStatus status;
+        int code;
+        Marshal.ThrowExceptionForHR(((delegate* unmanaged[Stdcall]<IntPtr, Windows.Foundation.AsyncStatus*, int>)vtable[7])(info, &status));
+        Marshal.ThrowExceptionForHR(((delegate* unmanaged[Stdcall]<IntPtr, int*, int>)vtable[8])(info, &code));
+        error = code;
+        return status;
     }
 
     /// <summary>Drops the print handler for a window that's closing, so it doesn't keep the document alive.</summary>

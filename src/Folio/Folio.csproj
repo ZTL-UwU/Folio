@@ -73,6 +73,14 @@
   <PropertyGroup Condition="'$(RuntimeIdentifier)' == ''">
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
   </PropertyGroup>
+  <!-- C#/WinRT finds the .NET class for an object coming from WinUI by its runtime class name, which
+       needs the class's metadata. Trimmed away, the object only gets the declared type, so casts like
+       `ItemsPanelRoot is ItemsWrapGrid` or `GetFocusedElement(...) is TextBox` quietly fail; this keeps
+       every WinUI (and AppWindow) class. -->
+  <ItemGroup>
+    <TrimmerRootAssembly Include="Microsoft.WinUI" />
+    <TrimmerRootAssembly Include="Microsoft.InteractiveExperiences.Projection" />
+  </ItemGroup>
   <ItemGroup>
     <Content Include="Assets\**" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
