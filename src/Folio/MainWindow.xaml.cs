@@ -516,13 +516,15 @@ public sealed partial class MainWindow : Window
         _reloadDebounce.Tick -= OnReloadDebounceTick;
         _hintTimer.Stop();
         _hintTimer.Tick -= OnHintTimerTick;
+        _thumbnailSyncThrottle.Stop();
+        _thumbnailSyncThrottle.Tick -= OnThumbnailSyncThrottleTick;
         _searchCts?.Cancel();
         _annotationScanCts?.Cancel();
         _watcher?.Dispose();
         _watcher = null;
         // Page and thumbnail bitmaps are only freed when released, not when the window is collected.
         Viewer.SetDocument(null);
-        Viewer.DetachFromXamlRoot();
+        Viewer.Detach();
         ClearThumbnails();
         _document?.Dispose();
         _document = null;

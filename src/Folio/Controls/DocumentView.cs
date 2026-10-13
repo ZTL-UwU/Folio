@@ -42,7 +42,7 @@ public sealed partial class DocumentView : UserControl
     private readonly Dictionary<int, PageView> _views = [];
     private readonly Dictionary<int, PageText> _texts = [];
     /// <summary>Text loads in progress, cancelled when their page leaves the view.</summary>
-    private readonly Dictionary<int, CancellationTokenSource> _textLoading = [];
+    private readonly Dictionary<int, (CancellationTokenSource Cts, WorkPriority Priority)> _textLoading = [];
     private readonly Dictionary<int, List<SearchHit>> _searchHits = [];
     private List<Row> _rows = [];
     private Rect[] _pageRects = [];
@@ -118,7 +118,6 @@ public sealed partial class DocumentView : UserControl
         _prefetchTimer = DispatcherQueue.CreateTimer();
         _prefetchTimer.Interval = TimeSpan.FromMilliseconds(100);
         _prefetchTimer.IsRepeating = false;
-        _prefetchTimer.Tick += (_, _) => UpdateRealization(true);
         _scroller.SizeChanged += (_, _) => OnViewportSizeChanged();
         ScrollBarHideFix.Attach(_scroller);
         _root.Children.Add(_scroller);
@@ -153,32 +152,36 @@ public sealed partial class DocumentView : UserControl
         AddHandler(PointerReleasedEvent, new PointerEventHandler(OnMiddleScrollPointerReleased), true);
         PointerCaptureLost += (_, _) => { if (_middleScrollHeld) StopMiddleScroll(); };
         LostFocus += (_, _) => { StopMiddleScroll(); StopAutoScroll(); };
-        // XamlRoot isn't a XAML element, so the garbage collector can't trace a cycle through its handler.
-        // Detach so it can't keep the view, and the window it was in, alive after closing.
+        // Neither XamlRoot nor the timer is a XAML element, so the garbage collector can't trace a cycle
+        // through their handlers. Detach so they can't keep the view, and the window it was in, alive after closing.
         Loaded += (_, _) =>
         {
             if (_xamlRoot is not null || XamlRoot is null) return;
             _xamlRoot = XamlRoot;
             _xamlRoot.Changed += OnXamlRootChanged;
+            _prefetchTimer.Tick += OnPrefetchTimerTick;
         };
         Unloaded += (_, _) =>
         {
             StopMiddleScroll();
             StopAutoScroll();
-            _prefetchTimer.Stop();
-            DetachFromXamlRoot();
+            Detach();
         };
     }
 
     private XamlRoot? _xamlRoot;
 
-    /// <summary>Stops listening to the window's XamlRoot. Closing a window doesn't unload its content, so it calls this.</summary>
-    public void DetachFromXamlRoot()
+    /// <summary>Stops listening to the window's XamlRoot and timers. Closing a window doesn't unload its content, so it calls this.</summary>
+    public void Detach()
     {
         if (_xamlRoot is null) return;
         _xamlRoot.Changed -= OnXamlRootChanged;
         _xamlRoot = null;
+        _prefetchTimer.Stop();
+        _prefetchTimer.Tick -= OnPrefetchTimerTick;
     }
+
+    private void OnPrefetchTimerTick(Microsoft.UI.Dispatching.DispatcherQueueTimer sender, object args) => UpdateRealization(true);
 
     private void OnXamlRootChanged(XamlRoot sender, XamlRootChangedEventArgs args) => RefreshRendering();
 
@@ -218,7 +221,7 @@ public sealed partial class DocumentView : UserControl
         _views.Clear();
         _host.Children.Clear();
         _texts.Clear();
-        foreach (var cts in _textLoading.Values) cts.Cancel();
+        foreach (var loading in _textLoading.Values) loading.Cts.Cancel();
         _textLoading.Clear();
         _lastVisible = Rect.Empty;
         _searchHits.Clear();
@@ -832,6 +835,8 @@ public sealed partial class DocumentView : UserControl
             bool isVisible = !inter.IsEmpty && inter.Width > 0 && inter.Height > 0;
             var local = isVisible ? new Rect(inter.X - rect.X, inter.Y - rect.Y, inter.Width, inter.Height) : Rect.Empty;
             if (allowRescale || !HasBitmap(view)) view.Render(pixelScale, local, _inverted, isVisible);
+            // A page drawn while off screen queued its text behind the pages around it; now it's in view, that can't wait.
+            if (isVisible && !_texts.ContainsKey(index) && HasBitmap(view)) EnsureText(index);
         }
         if (allowRescale) SnapPages();
     }
@@ -871,7 +876,7 @@ public sealed partial class DocumentView : UserControl
     {
         if (!_views.Remove(index, out var view)) return;
         view.Release();
-        if (_textLoading.Remove(index, out var cts)) cts.Cancel();
+        if (_textLoading.Remove(index, out var loading)) loading.Cts.Cancel();
         _host.Children.Remove(view);
     }
 
@@ -910,14 +915,25 @@ public sealed partial class DocumentView : UserControl
 
     // ---------------------------------------------------------------- text data
 
+    /// <summary>
+    /// Loads a page's text. A page in view goes ahead of the bitmaps of the pages around it, as
+    /// presses on it (selecting, following links) need its text.
+    /// </summary>
     private async void EnsureText(int index)
     {
-        if (_document is null || _texts.ContainsKey(index) || _textLoading.ContainsKey(index)) return;
+        if (_document is null || _texts.ContainsKey(index)) return;
+        var priority = IsInView(index) ? WorkPriority.Visible : WorkPriority.Normal;
+        if (_textLoading.TryGetValue(index, out var loading))
+        {
+            if (loading.Priority <= priority) return;
+            loading.Cts.Cancel();
+        }
         var document = _document;
-        var cts = _textLoading[index] = new CancellationTokenSource();
+        var cts = new CancellationTokenSource();
+        _textLoading[index] = (cts, priority);
         try
         {
-            var text = await document.GetPageTextAsync(index, token: cts.Token);
+            var text = await document.GetPageTextAsync(index, priority, cts.Token);
             if (document != _document) return;
             _texts[index] = text;
             if (_texts.Count > 64)
@@ -931,8 +947,15 @@ public sealed partial class DocumentView : UserControl
         }
         finally
         {
-            if (_textLoading.TryGetValue(index, out var current) && current == cts) _textLoading.Remove(index);
+            if (_textLoading.TryGetValue(index, out var current) && current.Cts == cts) _textLoading.Remove(index);
         }
+    }
+
+    private bool IsInView(int index)
+    {
+        if (index >= _pageRects.Length || _pageRects[index].IsEmpty) return false;
+        var inter = RectHelper.Intersect(_pageRects[index], VisibleContentRect());
+        return !inter.IsEmpty && inter.Width > 0 && inter.Height > 0;
     }
 
     private async Task<PageText?> GetTextAsync(int index)
