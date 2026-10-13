@@ -73,6 +73,32 @@
       <Content Include="$(ProjectDir)$(IntermediateOutputPath)thumbnails\Folio.Thumbnails.dll" Link="Folio.Thumbnails.dll" CopyToOutputDirectory="PreserveNewest" />
     </ItemGroup>
   </Target>
+  <!-- The About dialog shows which build this is under the version: the commit (from the .NET SDK's
+       Source Link), marked "-dirty" if the checkout had uncommitted changes, and a label. The label
+       defaults to the checkout's folder name, which tells worktrees apart (CI builds show just the
+       commit); set it with -p:FolioBuildLabel=... or a FolioBuildLabel environment variable. -->
+  <Target Name="AddBuildInfo" BeforeTargets="GetAssemblyAttributes" DependsOnTargets="InitializeSourceControlInformation">
+    <Exec Command="git status --porcelain" WorkingDirectory="$(MSBuildProjectDirectory)" ConsoleToMSBuild="true"
+          StandardOutputImportance="low" IgnoreExitCode="true" ContinueOnError="true">
+      <Output TaskParameter="ConsoleOutput" PropertyName="_GitStatus" />
+      <Output TaskParameter="ExitCode" PropertyName="_GitStatusExitCode" />
+    </Exec>
+    <PropertyGroup>
+      <_CheckoutRoot>$([MSBuild]::GetDirectoryNameOfFileAbove($(MSBuildProjectDirectory), 'Folio.sln'))</_CheckoutRoot>
+      <FolioBuildLabel Condition="'$(FolioBuildLabel)' == '' and '$(_CheckoutRoot)' != '' and '$(CI)' != 'true'">$([System.IO.Path]::GetFileName($(_CheckoutRoot)))</FolioBuildLabel>
+      <_BuildCommit Condition="'$(SourceRevisionId)' != ''">$(SourceRevisionId.Substring(0, $([System.Math]::Min(7, $(SourceRevisionId.Length)))))</_BuildCommit>
+      <_BuildCommit Condition="'$(_BuildCommit)' != '' and '$(_GitStatusExitCode)' == '0' and '$(_GitStatus)' != ''">$(_BuildCommit)-dirty</_BuildCommit>
+      <_BuildInfo>$(_BuildCommit)</_BuildInfo>
+      <_BuildInfo Condition="'$(_BuildInfo)' != '' and '$(FolioBuildLabel)' != ''">$(_BuildInfo) · $(FolioBuildLabel)</_BuildInfo>
+      <_BuildInfo Condition="'$(_BuildInfo)' == ''">$(FolioBuildLabel)</_BuildInfo>
+    </PropertyGroup>
+    <ItemGroup Condition="'$(_BuildInfo)' != ''">
+      <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute">
+        <_Parameter1>BuildInfo</_Parameter1>
+        <_Parameter2>$(_BuildInfo)</_Parameter2>
+      </AssemblyAttribute>
+    </ItemGroup>
+  </Target>
   <PropertyGroup Condition="'$(RuntimeIdentifier)' == '' and '$(Platform)' == 'ARM64'">
     <RuntimeIdentifier>win-arm64</RuntimeIdentifier>
   </PropertyGroup>

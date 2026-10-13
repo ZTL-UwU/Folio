@@ -1,3 +1,4 @@
+using System.Reflection;
 using Folio.Pdf;
 using Folio.Services;
 using Microsoft.UI.Xaml;
@@ -186,6 +187,19 @@ internal static class Dialogs
             Style = AppStyle("SecondaryTextBlockStyle"),
             HorizontalAlignment = HorizontalAlignment.Center,
         });
+        // The commit and checkout (or CI branch) it was built from; see AddBuildInfo in Folio.csproj.
+        var buildInfo = typeof(Dialogs).Assembly.GetCustomAttributes<AssemblyMetadataAttribute>()
+            .FirstOrDefault(a => a.Key == "BuildInfo")?.Value;
+        if (!string.IsNullOrEmpty(buildInfo))
+        {
+            panel.Children.Add(new TextBlock
+            {
+                Text = buildInfo,
+                Style = AppStyle("SecondaryTextBlockStyle"),
+                HorizontalAlignment = HorizontalAlignment.Center,
+                IsTextSelectionEnabled = true,
+            });
+        }
         panel.Children.Add(new TextBlock
         {
             Text = "A simple document viewer for Windows, inspired by GNOME Papers. PDF rendering by PDFium.",
