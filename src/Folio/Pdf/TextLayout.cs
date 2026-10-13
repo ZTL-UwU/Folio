@@ -253,6 +253,18 @@ public sealed class TextLayout
         return best;
     }
 
+    /// <summary>
+    /// Where on its line the caret <see cref="CaretAt"/> picks for a point is: the point moved onto
+    /// the nearest line, at the line's middle. Null when the page has no text.
+    /// </summary>
+    public Point? CaretPoint(Point p)
+    {
+        int line = LineAt(p);
+        if (line < 0) return null;
+        var b = Lines[line].Bounds;
+        return new Point(Math.Clamp(p.X, b.Left, b.Right), b.Top + b.Height / 2);
+    }
+
     /// <summary>The text position (between characters) nearest a point.</summary>
     public int CaretAt(Point p)
     {

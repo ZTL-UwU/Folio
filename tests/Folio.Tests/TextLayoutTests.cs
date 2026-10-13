@@ -120,6 +120,16 @@ public sealed class TextLayoutTests
     }
 
     [Fact]
+    public void CaretPoint_MovesThePointOntoTheNearestLine()
+    {
+        var text = Paragraphs();
+        Assert.Equal(new Point(20, 5), text.Layout.CaretPoint(new Point(20, 2)));
+        Assert.Equal(new Point(15, 17), text.Layout.CaretPoint(new Point(70, 25)));
+        Assert.Equal(new Point(0, 45), text.Layout.CaretPoint(new Point(-20, 200)));
+        Assert.Null(Create().Layout.CaretPoint(new Point(0, 0)));
+    }
+
+    [Fact]
     public void RangeRects_GivesOneRectPerLine()
     {
         var text = Paragraphs();

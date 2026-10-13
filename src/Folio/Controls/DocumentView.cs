@@ -1075,6 +1075,18 @@ public sealed partial class DocumentView : UserControl
         return (new TextPosition(hit.Page, text.Layout.CaretAt(hit.Display)), text, hit.Display);
     }
 
+    /// <summary>
+    /// Whether the caret a press at <paramref name="display"/> would place is in view, with at least
+    /// half its line showing, so a press in empty space doesn't start selecting text off screen.
+    /// </summary>
+    private bool IsCaretInView(int page, PageText text, Point display)
+    {
+        if (text.Layout.CaretPoint(display) is not { } caret) return false;
+        var rect = _pageRects[page];
+        var view = _views[page].ToView(caret);
+        return VisibleContentRect().Contains(new Point(rect.X + view.X, rect.Y + view.Y));
+    }
+
     private PdfLink? LinkAt(int page, Point display)
     {
         if (!_texts.TryGetValue(page, out var text)) return null;
@@ -1131,10 +1143,10 @@ public sealed partial class DocumentView : UserControl
         _dragging = false;
         _pressedLink = null;
         _linkDragAnchor = null;
-        // A press anywhere starts a new selection (or extends the current one with Shift), so a
-        // drag never carries on from an old selection. On a link that waits until the press turns
-        // into a drag, which selects the text under it; a click follows the link and leaves the
-        // selection alone.
+        // A press starts a new selection (or extends the current one with Shift), so a drag never
+        // carries on from an old selection; one whose nearest text is out of view only clears it.
+        // On a link that waits until the press turns into a drag, which selects the text under it;
+        // a click follows the link and leaves the selection alone.
         bool extend = (e.KeyModifiers & VirtualKeyModifiers.Shift) != 0 && _selectionAnchor is not null;
         var hit = HitPage(point.Position);
         if (hit is { } h) _pressedLink = LinkAt(h.Page, h.Display);
@@ -1150,7 +1162,7 @@ public sealed partial class DocumentView : UserControl
         else
         {
             ClearSelection();
-            if (target is { } t) _selectionAnchor = t.Position;
+            if (target is { } t && t.Display is { } d && IsCaretInView(t.Position.Page, t.Text, d)) _selectionAnchor = t.Position;
         }
         _host.CapturePointer(e.Pointer);
         e.Handled = true;
