@@ -41,7 +41,8 @@ public sealed partial class DocumentView : UserControl
     private readonly TextBlock _statusText = new() { TextTrimming = TextTrimming.CharacterEllipsis, MaxWidth = 520 };
     private readonly Dictionary<int, PageView> _views = [];
     private readonly Dictionary<int, PageText> _texts = [];
-    private readonly HashSet<int> _textLoading = [];
+    /// <summary>Text loads in progress, cancelled when their page leaves the view.</summary>
+    private readonly Dictionary<int, CancellationTokenSource> _textLoading = [];
     private readonly Dictionary<int, List<SearchHit>> _searchHits = [];
     private List<Row> _rows = [];
     private Rect[] _pageRects = [];
@@ -62,6 +63,10 @@ public sealed partial class DocumentView : UserControl
     /// <summary>Position (in unzoomed content coordinates) of a scroll request that hasn't been applied yet.</summary>
     private double? _pendingContentX, _pendingContentY;
     private SearchHit? _currentHit;
+    /// <summary>The content in view when pages were last realized, to tell a scroll from a jump.</summary>
+    private Rect _lastVisible = Rect.Empty;
+    /// <summary>Realizes the pages around the view once it has stopped jumping.</summary>
+    private readonly Microsoft.UI.Dispatching.DispatcherQueueTimer _prefetchTimer;
 
     private TextPosition? _selectionAnchor;
     private TextPosition? _selectionFocus;
@@ -110,6 +115,10 @@ public sealed partial class DocumentView : UserControl
             Content = _host,
         };
         _scroller.ViewChanged += OnViewChanged;
+        _prefetchTimer = DispatcherQueue.CreateTimer();
+        _prefetchTimer.Interval = TimeSpan.FromMilliseconds(100);
+        _prefetchTimer.IsRepeating = false;
+        _prefetchTimer.Tick += (_, _) => UpdateRealization(true);
         _scroller.SizeChanged += (_, _) => OnViewportSizeChanged();
         ScrollBarHideFix.Attach(_scroller);
         _root.Children.Add(_scroller);
@@ -156,6 +165,7 @@ public sealed partial class DocumentView : UserControl
         {
             StopMiddleScroll();
             StopAutoScroll();
+            _prefetchTimer.Stop();
             DetachFromXamlRoot();
         };
     }
@@ -208,7 +218,9 @@ public sealed partial class DocumentView : UserControl
         _views.Clear();
         _host.Children.Clear();
         _texts.Clear();
+        foreach (var cts in _textLoading.Values) cts.Cancel();
         _textLoading.Clear();
+        _lastVisible = Rect.Empty;
         _searchHits.Clear();
         _currentHit = null;
         ClearSelection();
@@ -783,7 +795,13 @@ public sealed partial class DocumentView : UserControl
     {
         if (_document is null || XamlRoot is null) return;
         var visible = VisibleContentRect();
-        var prefetch = new Rect(visible.X, visible.Y - visible.Height * 0.75, visible.Width, visible.Height * 2.5);
+        // A view that jumped past the last one (dragging the scroll bar of a long document moves a
+        // screenful or more a frame) will likely jump again before neighbouring pages could be used,
+        // so it gets only the pages in view, and the neighbours once it has stayed put for a moment.
+        bool jumped = !_lastVisible.IsEmpty && (visible.Top >= _lastVisible.Bottom || visible.Bottom <= _lastVisible.Top);
+        _lastVisible = visible;
+        if (jumped) _prefetchTimer.Start();
+        var prefetch = jumped ? visible : new Rect(visible.X, visible.Y - visible.Height * 0.75, visible.Width, visible.Height * 2.5);
         var keep = new Rect(visible.X - visible.Width, visible.Y - visible.Height * 1.5, visible.Width * 3, visible.Height * 4);
         var wanted = PagesIn(prefetch).Take(80).ToHashSet();
         var keepSet = PagesIn(keep).ToHashSet();
@@ -803,7 +821,10 @@ public sealed partial class DocumentView : UserControl
                 view.Arrange(_pageRects[index], BaseScale, _rotation);
                 _views[index] = view;
                 _host.Children.Add(view);
-                EnsureText(index);
+                // Text comes after the bitmap: while the scroll bar is dragged, most pages are gone
+                // before PDFium gets to them, and their text would only hold up the pages that stay.
+                int page = index;
+                view.Rendered += (_, _) => EnsureText(page);
                 UpdateOverlay(index);
             }
             var rect = _pageRects[index];
@@ -850,6 +871,7 @@ public sealed partial class DocumentView : UserControl
     {
         if (!_views.Remove(index, out var view)) return;
         view.Release();
+        if (_textLoading.Remove(index, out var cts)) cts.Cancel();
         _host.Children.Remove(view);
     }
 
@@ -890,11 +912,12 @@ public sealed partial class DocumentView : UserControl
 
     private async void EnsureText(int index)
     {
-        if (_document is null || _texts.ContainsKey(index) || !_textLoading.Add(index)) return;
+        if (_document is null || _texts.ContainsKey(index) || _textLoading.ContainsKey(index)) return;
         var document = _document;
+        var cts = _textLoading[index] = new CancellationTokenSource();
         try
         {
-            var text = await document.GetPageTextAsync(index);
+            var text = await document.GetPageTextAsync(index, token: cts.Token);
             if (document != _document) return;
             _texts[index] = text;
             if (_texts.Count > 64)
@@ -903,12 +926,12 @@ public sealed partial class DocumentView : UserControl
             }
             UpdateOverlay(index);
         }
-        catch (Exception ex) when (ex is ObjectDisposedException or InvalidDataException)
+        catch (Exception ex) when (ex is OperationCanceledException or ObjectDisposedException or InvalidDataException)
         {
         }
         finally
         {
-            _textLoading.Remove(index);
+            if (_textLoading.TryGetValue(index, out var current) && current == cts) _textLoading.Remove(index);
         }
     }
 

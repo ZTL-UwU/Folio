@@ -67,6 +67,8 @@ internal sealed partial class PageView : Canvas
     public int PageRotation { get; private set; }
     /// <summary>Layout DIPs per point.</summary>
     public double LayoutScale { get; private set; } = 1;
+    /// <summary>Raised when PDFium has drawn the page, so work for it that can wait (its text) can start.</summary>
+    public event EventHandler? Rendered;
 
     // Windows 11 card look: rounded corners and an outside hairline in CardStrokeColorDefault, no
     // shadow. Sizes are in screen DIPs and are rescaled to cancel out zoom.
@@ -341,6 +343,7 @@ internal sealed partial class PageView : Canvas
             using var buffer = await _document.RenderAsync(PageIndex, scale, PageRotation, region, inverted,
                 isVisible ? WorkPriority.Visible : WorkPriority.Normal, cts.Token);
             if (buffer is null || cts.IsCancellationRequested || version != _version) return;
+            Rendered?.Invoke(this, EventArgs.Empty);
             var source = await ToSourceAsync(buffer);
             if (cts.IsCancellationRequested || version != _version)
             {
