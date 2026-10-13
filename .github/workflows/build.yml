@@ -50,6 +50,11 @@ jobs:
         if: matrix.platform == 'x64'
         run: dotnet test tests/Folio.Tests/Folio.Tests.csproj -c Release
 
+      # The developer tools (docs/tools.md) aren't shipped, but should keep compiling.
+      - name: Build tools
+        if: matrix.platform == 'x64'
+        run: dotnet build tools/Folio.Tools/Folio.Tools.csproj -c Release
+
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: Folio-${{ matrix.rid }}

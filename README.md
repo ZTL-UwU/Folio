@@ -16,6 +16,8 @@ dotnet build src/Folio/Folio.csproj -c Release
   <img alt="Time to first page and memory use of Folio, Microsoft Edge and Adobe Acrobat" src="./.github/assets/benchmark.png" />
 </p>
 
+Measured with the [benchmark tool](docs/tools.md#benchmark).
+
 ## Credits
 
 - [GNOME Papers](https://apps.gnome.org/Papers/) for inspiration

@@ -15,7 +15,7 @@ The tests build the UI-free code (`src/Folio/Pdf`, `Services/LaunchPolicy.cs`, t
 
 The app is unpackaged and self-contained: it bundles .NET and the Windows App SDK 2.5 runtime. It references only the WinUI and Foundation components, not the `Microsoft.WindowsAppSDK` meta-package (whose AI/ML parts add ~60 MB). `dotnet publish` compiles it with Native AOT, which trims the output and can't JIT, so test a published build after adding reflection-based code; classes that WinUI holds on to (items, controls) must be `partial`. PDFium comes from the `bblanchon.PDFium.Win32` package.
 
-For the Store package, see [Packaging](packaging.md).
+To try a build as your PDF app, measure performance or rebuild the icon, see [Tools](tools.md). For the Store package, see [Packaging](packaging.md).
 
 ## Source layout
 
@@ -30,4 +30,5 @@ For the Store package, see [Packaging](packaging.md).
 | `src/Folio/Program.cs` | Entry point; forwards files to a running instance |
 | `src/Folio.Thumbnails` | File Explorer thumbnail handler (Native AOT COM DLL, MSIX build only) |
 | `tests/Folio.Tests` | xUnit tests |
+| `tools` | Developer tools: build-and-try script, benchmark, icon build ([Tools](tools.md)) |
 | `LICENSE`, `licenses/`, `THIRD-PARTY-NOTICES.md` | License texts, copied into the build output |
