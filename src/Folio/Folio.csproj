@@ -29,6 +29,9 @@
          at startup. Like the thumbnail handler, that needs the MSVC linker (Visual Studio's C++ build
          tools); `dotnet build` still runs on the JIT. -->
     <PublishAot>true</PublishAot>
+    <!-- Also warns about classes that implement .NET interfaces C#/WinRT maps to WinRT ones (IDisposable,
+         collections) without being partial, which breaks them under AOT if they're handed to WinRT. -->
+    <CsWinRTAotWarningLevel>2</CsWinRTAotWarningLevel>
     <!-- Both builds bundle .NET, trimmed on publish to the code Folio actually reaches. Trimming
          needs a self-contained build; it also means users don't have to install .NET. -->
     <SelfContained>true</SelfContained>
