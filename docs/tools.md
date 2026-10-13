@@ -35,9 +35,9 @@ dotnet run --project tools/Folio.Tools -- bench --apps Folio,Edge --runs 10
 It publishes this checkout's Folio to `out\bench\folio` and measures it against whichever of Microsoft Edge, Adobe Acrobat and SumatraPDF are installed, on two documents generated into `out\bench\documents`: two pages of text, and 1,000 pages whose first page is a topographic map (a 15-megapixel image under some 140,000 contour line segments), the rest text with photos and charts.
 
 - **Page**: time from starting the viewer to page 1 on screen. Page 1 of each document has a magenta band across the top, drawn last; the benchmark watches the viewer's windows with Windows.Graphics.Capture until the band appears, and takes the time DWM composed that frame. Covered windows count too, so the machine can be used during a run, though that adds noise.
-- **Memory**: private working set (Task Manager's Memory column) summed over the viewer's processes, 5 seconds after the page appears. Also recorded: the peak, and commit (private bytes).
+- **Memory**: private working set (Task Manager's Memory column) summed over the viewer's processes once the viewer has finished loading: when the total has stayed within 2% for 2 seconds, or 5 seconds after the page appears, whichever is first. Also recorded: the peak, and commit (private bytes).
 
-Each viewer is closed between runs, and every viewer/document pair gets a warm-up run first, so the numbers are warm starts. Viewers take turns, to spread out noise. Edge and SumatraPDF run with a temporary profile, leaving yours alone. Folio, Acrobat and SumatraPDF would hand the file to a copy that's already running, so the benchmark stops if one is; `--close-running` closes them instead (losing unsaved work).
+Each viewer is closed between runs, and every viewer/document pair gets a warm-up run first (timed, not recorded), so the numbers are warm starts. With the defaults, a run of all four viewers takes about 5 minutes. Viewers take turns, to spread out noise. Edge and SumatraPDF run with a temporary profile, leaving yours alone. Folio, Acrobat and SumatraPDF would hand the file to a copy that's already running, so the benchmark stops if one is; `--close-running` closes them instead (losing unsaved work).
 
 Results go to `out\bench\<date-time>\`: `runs.csv` (every run), `results.json` (medians) and `chart.png`. To update the README chart, redraw it from a run, picking the viewers to show:
 
@@ -53,9 +53,9 @@ dotnet run --project tools/Folio.Tools -- chart out\bench\<date-time>\results.js
 | `--folio <exe>` | | Measure this Folio build instead of publishing one |
 | `--close-running` | | Close running viewers instead of stopping |
 | `--save-frames` | | Save the frame each run detected the page in, to check what was measured |
-| `--settle` | 5 | Seconds after the page appears before reading memory |
+| `--settle` | 5 | Most seconds to wait for memory to settle after the page appears |
 | `--timeout` | 60 | Seconds to wait for the page |
-| `--cooldown` | 2 | Seconds between runs |
+| `--cooldown` | 0.5 | Seconds between runs |
 | `--fraction` | 0.01 | Share of a window the band must cover; low enough for a page at fit-page zoom, high enough that a thumbnail doesn't count |
 | `--out <dir>` | `out\bench\<date-time>` | Where results go |
 

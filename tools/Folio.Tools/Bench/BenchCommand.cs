@@ -23,7 +23,7 @@ internal static class BenchCommand
             Warmup: (int)options.Number("warmup", 1),
             SettleSeconds: options.Number("settle", 5),
             TimeoutSeconds: options.Number("timeout", 60),
-            CooldownSeconds: options.Number("cooldown", 2),
+            CooldownSeconds: options.Number("cooldown", 0.5),
             // Low enough for a page at fit-page zoom, high enough that a thumbnail in a sidebar doesn't count.
             MarkerFraction: options.Number("fraction", 0.01));
         if (settings.Runs < 1) throw new ToolException("--runs must be at least 1.");
@@ -147,7 +147,8 @@ internal static class BenchCommand
                     {
                         string? frame = saveFrames ? Path.Combine(outDir, "frames", $"{viewer.Name}-{document.Id}-{label.Replace('/', '-').Replace(' ', '-')}.png") : null;
                         var started = DateTime.Now.AddSeconds(-1);
-                        var result = await Measurement.RunAsync(viewer, document.Path, settings, device, frame);
+                        // Warm-up runs only load the files into the OS cache; their memory isn't recorded.
+                        var result = await Measurement.RunAsync(viewer, document.Path, settings, device, frame, timeOnly: run <= 0);
                         result.Stop(viewer, started);
 
                         string line = $"{viewer.Name.PadRight(width)}  {document.Id,-6}  {label,-9}  ";
@@ -159,8 +160,8 @@ internal static class BenchCommand
                         }
                         else
                         {
-                            Console.WriteLine(line + $"window {result.WindowMs,6:N0} ms   page {result.PageMs,6:N0} ms   " +
-                                $"memory {result.MemoryMB,6:N0} MB   peak {result.PeakMemoryMB,6:N0} MB   {result.Processes} processes");
+                            string memory = result.MemoryMB is null ? "" : $"   memory {result.MemoryMB,6:N0} MB   peak {result.PeakMemoryMB,6:N0} MB   {result.Processes} processes";
+                            Console.WriteLine(line + $"window {result.WindowMs,6:N0} ms   page {result.PageMs,6:N0} ms{memory}");
                         }
                         if (run > 0)
                         {
@@ -186,7 +187,7 @@ internal static class BenchCommand
     private static void PrintSummary(BenchResults results)
     {
         Console.WriteLine();
-        Console.WriteLine($"Medians of {results.Runs} runs. Memory is the private working set of all the viewer's processes, {results.SettleSeconds:0.#} s after page 1 showed.");
+        Console.WriteLine($"Medians of {results.Runs} runs. Memory is the private working set of all the viewer's processes once it settled (at most {results.SettleSeconds:0.#} s after page 1 showed).");
         int width = Math.Max(3, results.Results.Max(r => r.App.Length));
         foreach (var document in results.Documents)
         {

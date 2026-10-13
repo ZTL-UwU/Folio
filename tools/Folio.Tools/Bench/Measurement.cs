@@ -16,13 +16,13 @@ internal sealed class Measurement
     /// <summary>To this tool finishing the check of that frame; a sanity check on <see cref="PageMs"/>.</summary>
     public double? DetectedMs { get; set; }
 
-    // Totals over the viewer's processes, settle time after the page showed.
+    // Totals over the viewer's processes once their memory settled after the page showed.
     public double? MemoryMB { get; set; } // private working set, as Task Manager's Memory column
     public double? WorkingSetMB { get; set; }
     public double? CommitMB { get; set; } // private bytes, including memory paged out or not touched yet
     public int Processes { get; set; }
 
-    /// <summary>The highest private working set total from launch to the end of the settle time.</summary>
+    /// <summary>The highest private working set total from launch to the end of the settle period.</summary>
     public double? PeakMemoryMB { get; set; }
 
     public string? Error { get; set; }
@@ -30,10 +30,12 @@ internal sealed class Measurement
     public HashSet<int> Pids { get; set; } = [];
 
     /// <summary>
-    /// Starts <paramref name="viewer"/> on <paramref name="file"/>, waits for page 1 to show, then for the settle time,
-    /// and reads the memory of the viewer's processes. Leaves the viewer running; see <see cref="Stop"/>.
+    /// Starts <paramref name="viewer"/> on <paramref name="file"/>, waits for page 1 to show, then (unless
+    /// <paramref name="timeOnly"/>) for its memory to settle, and reads the memory of the viewer's processes.
+    /// Leaves the viewer running; see <see cref="Stop"/>.
     /// </summary>
-    public static async Task<Measurement> RunAsync(Viewer viewer, string file, BenchSettings settings, CaptureDevice device, string? framePath)
+    public static async Task<Measurement> RunAsync(Viewer viewer, string file, BenchSettings settings, CaptureDevice device,
+        string? framePath, bool timeOnly = false)
     {
         var result = new Measurement();
         var existing = WindowCapture.TopLevelWindows().ToHashSet();
@@ -106,23 +108,32 @@ internal sealed class Measurement
                 : "page 1 never showed";
         }
 
-        // Let the viewer finish loading (thumbnails, text, prefetching) before the reading that counts.
+        tree.Update();
+        result.Pids = tree.Pids;
+        if (timeOnly) return result;
+
+        // Let the viewer finish loading (thumbnails, text, prefetching) before the reading that counts: until its
+        // memory has stayed within 2% (or 2 MB) for StableMs, or for at most the settle time.
+        const int SampleMs = 250, StableMs = 2000;
+        var recent = new Queue<ulong>();
         double settleEnd = Elapsed() + settings.SettleSeconds * 1000;
-        while (Elapsed() < settleEnd)
+        MemoryTotals final;
+        while (true)
         {
             tree.Update();
-            memory.Sample(tree);
-            Thread.Sleep(250);
+            final = memory.Sample(tree);
+            recent.Enqueue(final.PrivateWorkingSet);
+            if (recent.Count > StableMs / SampleMs + 1) recent.Dequeue();
+            bool stable = recent.Count > StableMs / SampleMs && recent.Max() - recent.Min() <= Math.Max(2UL << 20, recent.Max() / 50);
+            if (stable || Elapsed() >= settleEnd) break;
+            Thread.Sleep(SampleMs);
         }
-        tree.Update();
-        var final = memory.Sample(tree);
         const double MB = 1 << 20;
         result.MemoryMB = final.PrivateWorkingSet / MB;
         result.WorkingSetMB = final.WorkingSet / MB;
         result.CommitMB = final.Commit / MB;
         result.PeakMemoryMB = memory.PeakPrivateWorkingSet / MB;
         result.Processes = final.Processes;
-        result.Pids = tree.Pids;
         return result;
     }
 

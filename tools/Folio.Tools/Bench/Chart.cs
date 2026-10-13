@@ -19,7 +19,7 @@ internal static class Chart
         string memory = Panel(results, documents, apps, s => s.MemoryMB, "MB", out _);
         string runs = results.Runs == 1 ? "One warm start" : $"Median of {results.Runs} warm starts";
         string footer = $"{runs} on {results.Machine}, {results.Windows}. " +
-            $"Memory is the private working set of all the viewer's processes {results.SettleSeconds:0.#} s after page 1 appears.";
+            $"Memory is the private working set of all the viewer's processes once it settles, at most {results.SettleSeconds:0.#} s after page 1 appears.";
 
         // 28 px padding, 20 px headings, 6 px gap, the plots, 14 px gap, 16 px footer, 22 px padding.
         int pageHeight = 28 + 20 + 6 + height + 14 + 16 + 22;
