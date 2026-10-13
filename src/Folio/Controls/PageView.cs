@@ -24,7 +24,7 @@ namespace Folio.Controls;
 /// Displays a single page: a full-page bitmap, optional high resolution tiles for the visible
 /// region when zoomed in, and an overlay for selection / search highlights.
 /// </summary>
-internal sealed class PageView : Canvas
+internal sealed partial class PageView : Canvas
 {
     private const int TileSize = 512;
     private const double MaxFullPagePixels = 6_000_000;

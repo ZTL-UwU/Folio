@@ -27,7 +27,7 @@ jobs:
         with:
           dotnet-version: 10.0.x
 
-      # Publishing (not just building) compiles the app ReadyToRun, which makes it start faster.
+      # Publishing (not just building) compiles the app with Native AOT, which makes it start faster.
       - name: Publish
         run: dotnet publish src/Folio/Folio.csproj -c Release -p:Platform=${{ matrix.platform }} -r ${{ matrix.rid }} -o out/${{ matrix.rid }}
 

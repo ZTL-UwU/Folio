@@ -22,8 +22,10 @@
     <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
     <!-- Program.cs checks for a running instance before starting XAML. -->
     <DefineConstants>$(DefineConstants);DISABLE_XAML_GENERATED_MAIN</DefineConstants>
-    <!-- `dotnet publish` (what CI ships) precompiles the code, so less is JIT-compiled at startup. -->
-    <PublishReadyToRun>true</PublishReadyToRun>
+    <!-- `dotnet publish` (what CI ships) compiles the app with Native AOT, so nothing is JIT-compiled
+         at startup. Like the thumbnail handler, that needs the MSVC linker (Visual Studio's C++ build
+         tools); `dotnet build` still runs on the JIT. -->
+    <PublishAot>true</PublishAot>
     <!-- Both builds bundle .NET, trimmed on publish to the code Folio actually reaches. Trimming
          needs a self-contained build; it also means users don't have to install .NET. -->
     <SelfContained>true</SelfContained>
@@ -47,7 +49,7 @@
   </PropertyGroup>
   <!-- The package also registers the File Explorer thumbnail handler (see Package.appxmanifest). It's a
        Native AOT DLL, published here for the same architecture and copied into the package root next to
-       pdfium.dll. Native AOT needs Visual Studio's C++ build tools, so the unpackaged build skips it. -->
+       pdfium.dll. Only the package registers it, so the unpackaged build leaves it out. -->
   <PropertyGroup Condition="'$(WindowsPackageType)' == 'MSIX'">
     <ThumbnailsProject>$(MSBuildThisFileDirectory)..\Folio.Thumbnails\Folio.Thumbnails.csproj</ThumbnailsProject>
     <DotNetHost>$(DOTNET_HOST_PATH)</DotNetHost>
