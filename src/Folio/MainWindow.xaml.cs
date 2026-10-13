@@ -1177,6 +1177,7 @@ public sealed partial class MainWindow : Window
         {
             Text = $"“{name}” will open in the app Windows uses for this type of file. Attachments can contain harmful content, so only open it if you trust where this document came from.",
             TextWrapping = TextWrapping.Wrap,
+            Width = 360,
         };
         dialog.PrimaryButtonText = "Open";
         dialog.CloseButtonText = "Cancel";
