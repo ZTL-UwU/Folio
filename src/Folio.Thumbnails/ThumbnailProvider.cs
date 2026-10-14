@@ -7,7 +7,7 @@ namespace Folio.Thumbnails;
 [GeneratedComClass]
 internal sealed partial class ThumbnailProvider : IInitializeWithStream, IThumbnailProvider
 {
-    /// <summary>Must match the Clsid in src/Folio/Package.appxmanifest.</summary>
+    /// <summary>Must match the Clsid in src/Folio/Package.appxmanifest and tools/dev.ps1.</summary>
     public static readonly Guid Clsid = new("54e57302-4f85-47eb-8be3-76ee7e671857");
 
     private IStream? _stream;
