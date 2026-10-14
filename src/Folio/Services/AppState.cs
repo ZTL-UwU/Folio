@@ -51,6 +51,16 @@ public sealed class Preferences
     public int WindowWidth { get; set; } = 1200;
     public int WindowHeight { get; set; } = 820;
     public bool WindowMaximized { get; set; }
+    public PrintPreferences Print { get; set; } = new();
+}
+
+/// <summary>Choices from the last print job, offered again for the same printer.</summary>
+public sealed class PrintPreferences
+{
+    public string? Printer { get; set; }
+    public short? PaperSize { get; set; }
+    public bool Grayscale { get; set; }
+    public Folio.Printing.TwoSided TwoSided { get; set; }
 }
 
 [JsonSerializable(typeof(StateFile))]

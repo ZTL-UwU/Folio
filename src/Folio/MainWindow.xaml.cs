@@ -1498,6 +1498,16 @@ public sealed partial class MainWindow : Window
     private async void OnPrint(object sender, RoutedEventArgs e)
     {
         if (_document is null) return;
+        var dialog = new PrintDialog(this, Root.XamlRoot, _document, DisplayName(_document), Viewer.CurrentPage);
+        await dialog.ShowAsync();
+        if (dialog.UseSystemDialog) await PrintWithSystemDialogAsync();
+        else if (dialog.FailedPages > 0)
+            ShowMessage("Printing problem", dialog.FailedPages == 1 ? "One page couldn't be printed and was left blank." : $"{dialog.FailedPages} pages couldn't be printed and were left blank.", InfoBarSeverity.Warning);
+    }
+
+    private async Task PrintWithSystemDialogAsync()
+    {
+        if (_document is null) return;
         try
         {
             await PrintService.PrintAsync(this, _document, DisplayName(_document), Viewer.IsInverted,
@@ -1821,6 +1831,7 @@ public sealed partial class MainWindow : Window
         Add(VirtualKey.S, Ctrl, () => _ = SaveCopyAsync(), true);
         Add(VirtualKey.S, Ctrl | Shift, () => _ = SaveCopyAsync(), true);
         Add(VirtualKey.P, Ctrl, () => OnPrint(this, new RoutedEventArgs()), true);
+        Add(VirtualKey.P, Ctrl | Shift, () => _ = PrintWithSystemDialogAsync(), true);
         Add(VirtualKey.F, Ctrl, FocusSearch, true);
         Add(VirtualKey.F3, None, () => MoveSearch(+1), true);
         Add(VirtualKey.F3, Shift, () => MoveSearch(-1), true);

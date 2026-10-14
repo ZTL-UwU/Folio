@@ -234,10 +234,13 @@ public sealed unsafe partial class PdfDocument : IDisposable
     /// <summary>
     /// Renders part of a page. <paramref name="scale"/> is in device pixels per point and
     /// <paramref name="region"/> is expressed in device pixels of the rotated page. Cancelling
-    /// <paramref name="token"/> also stops a render that has already started.
+    /// <paramref name="token"/> also stops a render that has already started. <paramref name="printing"/>
+    /// renders the page as it prints, which can hide or show some annotations; <paramref name="annotations"/>
+    /// off leaves out annotations and form fields; <paramref name="grayscale"/> renders it grey the way
+    /// it's printed in black and white.
     /// </summary>
     public Task<PixelBuffer?> RenderAsync(int index, double scale, int rotation, Windows.Graphics.RectInt32 region, bool invert,
-        WorkPriority priority, CancellationToken token)
+        WorkPriority priority, CancellationToken token, bool printing = false, bool annotations = true, bool grayscale = false)
     {
         return PdfWorker.Run<PixelBuffer?>(() =>
         {
@@ -260,10 +263,8 @@ public sealed unsafe partial class PdfDocument : IDisposable
                 if (bitmap == IntPtr.Zero) return null;
                 try
                 {
-                    Native.FPDFBitmap_FillRect(bitmap, 0, 0, region.Width, region.Height, 0xFFFFFFFF);
-                    RenderProgressively(bitmap, page, -region.X, -region.Y, sizeX, sizeY, quarter, token);
-                    // Form fields are only drawn by FFLDraw.
-                    if (_form != IntPtr.Zero) Native.FPDF_FFLDraw(_form, bitmap, page, -region.X, -region.Y, sizeX, sizeY, quarter, 0);
+                    int flags = (annotations ? Native.FPDF_ANNOT : 0) | (printing ? Native.FPDF_PRINTING : 0) | (grayscale ? Native.FPDF_GRAYSCALE : 0);
+                    RenderOnto(bitmap, p, region.Width, region.Height, page, -region.X, -region.Y, sizeX, sizeY, quarter, flags, token);
                 }
                 finally
                 {
@@ -280,6 +281,21 @@ public sealed unsafe partial class PdfDocument : IDisposable
         }, priority, token);
     }
 
+    /// <summary>
+    /// Renders a page onto a white BGRA bitmap of <paramref name="width"/> x <paramref name="height"/>
+    /// at <paramref name="pixels"/>: its content, then form fields (only FFLDraw draws those), then grey
+    /// for <see cref="Native.FPDF_GRAYSCALE"/>. The viewer, the print preview and pages printed as
+    /// images all go through here, so the preview shows what those print.
+    /// </summary>
+    private void RenderOnto(IntPtr bitmap, byte* pixels, int width, int height, IntPtr page, int x, int y, int sizeX, int sizeY, int quarter, int flags, CancellationToken token)
+    {
+        Native.FPDFBitmap_FillRect(bitmap, 0, 0, width, height, 0xFFFFFFFF);
+        RenderProgressively(bitmap, page, x, y, sizeX, sizeY, quarter, flags, token);
+        if (_form != IntPtr.Zero && (flags & Native.FPDF_ANNOT) != 0) Native.FPDF_FFLDraw(_form, bitmap, page, x, y, sizeX, sizeY, quarter, flags);
+        // Greying the pixels too makes the result grey whatever PDFium's own grey mode covers.
+        if ((flags & Native.FPDF_GRAYSCALE) != 0) ToGray(pixels, width * height * 4);
+    }
+
     /// <summary>The token of the render in progress on the worker thread, polled by <see cref="NeedToPauseNow"/>.</summary>
     [ThreadStatic] private static CancellationToken _renderToken;
 
@@ -290,13 +306,13 @@ public sealed unsafe partial class PdfDocument : IDisposable
     /// Renders through PDFium's progressive API, which checks for cancellation between steps, so a
     /// heavy page that scrolled away doesn't hold up the worker until it's finished.
     /// </summary>
-    private static void RenderProgressively(IntPtr bitmap, IntPtr page, int x, int y, int sizeX, int sizeY, int quarter, CancellationToken token)
+    private static void RenderProgressively(IntPtr bitmap, IntPtr page, int x, int y, int sizeX, int sizeY, int quarter, int flags, CancellationToken token)
     {
         var pause = new IFSDK_PAUSE { Version = 1, NeedToPauseNow = &NeedToPauseNow };
         _renderToken = token;
         try
         {
-            int status = Native.FPDF_RenderPageBitmap_Start(bitmap, page, x, y, sizeX, sizeY, quarter, Native.FPDF_ANNOT, &pause);
+            int status = Native.FPDF_RenderPageBitmap_Start(bitmap, page, x, y, sizeX, sizeY, quarter, flags, &pause);
             // PDFium only pauses when asked to, so a pause here means the render was cancelled.
             if (status == Native.FPDF_RENDER_TOBECONTINUED) token.ThrowIfCancellationRequested();
         }

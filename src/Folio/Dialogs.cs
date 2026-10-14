@@ -105,7 +105,7 @@ internal static class Dialogs
         [
             ("Documents", [
                 ("Ctrl+O", "Open a document"), ("Ctrl+N", "New window"), ("Ctrl+S", "Save a copy"),
-                ("Ctrl+P", "Print"), ("Ctrl+R", "Reload"),
+                ("Ctrl+P", "Print"), ("Ctrl+Shift+P", "Print using the system dialog"), ("Ctrl+R", "Reload"),
                 ("Alt+Enter", "Properties"), ("Ctrl+W", AppState.Preferences.RememberRecent ? "Close document" : "Close window"),
                 ("Ctrl+,", "Settings"),
             ]),
