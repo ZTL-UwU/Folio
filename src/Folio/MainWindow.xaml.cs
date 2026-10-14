@@ -31,6 +31,8 @@ public sealed partial class MainWindow : Window
     private readonly DispatcherQueueTimer _searchDebounce;
     private readonly DispatcherQueueTimer _reloadDebounce;
     private readonly DispatcherQueueTimer _hintTimer;
+    private readonly DispatcherQueueTimer _thumbnailSyncThrottle;
+    private bool _thumbnailSyncPending;
     private readonly TaskCompletionSource _loaded = new();
     private readonly ObservableCollection<SearchItem> _searchItems = [];
     private readonly ObservableCollection<AnnotationItem> _annotationItems = [];
@@ -106,6 +108,11 @@ public sealed partial class MainWindow : Window
         _hintTimer.Interval = TimeSpan.FromSeconds(2.5);
         _hintTimer.IsRepeating = false;
         _hintTimer.Tick += OnHintTimerTick;
+
+        _thumbnailSyncThrottle = DispatcherQueue.CreateTimer();
+        _thumbnailSyncThrottle.Interval = TimeSpan.FromMilliseconds(150);
+        _thumbnailSyncThrottle.IsRepeating = false;
+        _thumbnailSyncThrottle.Tick += OnThumbnailSyncThrottleTick;
 
         SearchResultList.ItemsSource = _searchItems;
         AnnotationList.ItemsSource = _annotationItems;
@@ -509,13 +516,15 @@ public sealed partial class MainWindow : Window
         _reloadDebounce.Tick -= OnReloadDebounceTick;
         _hintTimer.Stop();
         _hintTimer.Tick -= OnHintTimerTick;
+        _thumbnailSyncThrottle.Stop();
+        _thumbnailSyncThrottle.Tick -= OnThumbnailSyncThrottleTick;
         _searchCts?.Cancel();
         _annotationScanCts?.Cancel();
         _watcher?.Dispose();
         _watcher = null;
         // Page and thumbnail bitmaps are only freed when released, not when the window is collected.
         Viewer.SetDocument(null);
-        Viewer.DetachFromXamlRoot();
+        Viewer.Detach();
         ClearThumbnails();
         _document?.Dispose();
         _document = null;
@@ -689,7 +698,7 @@ public sealed partial class MainWindow : Window
     private void OnCurrentPageChanged()
     {
         if (_document is null) return;
-        SyncThumbnailSelection();
+        ThrottledSyncThumbnailSelection();
     }
 
     private void UpdateZoomText()
@@ -928,6 +937,29 @@ public sealed partial class MainWindow : Window
         catch (Exception ex) when (ex is OperationCanceledException or ObjectDisposedException or InvalidDataException or COMException)
         {
         }
+    }
+
+    /// <summary>
+    /// Follows the current page in the thumbnails at most every 150 ms: scrolling them realizes a
+    /// screenful of previews, which dragging the document's scroll bar used to do on every frame.
+    /// </summary>
+    private void ThrottledSyncThumbnailSelection()
+    {
+        if (_thumbnailSyncThrottle.IsRunning)
+        {
+            _thumbnailSyncPending = true;
+            return;
+        }
+        SyncThumbnailSelection();
+        _thumbnailSyncThrottle.Start();
+    }
+
+    private void OnThumbnailSyncThrottleTick(DispatcherQueueTimer sender, object args)
+    {
+        if (!_thumbnailSyncPending) return;
+        _thumbnailSyncPending = false;
+        SyncThumbnailSelection();
+        _thumbnailSyncThrottle.Start();
     }
 
     private void SyncThumbnailSelection()
