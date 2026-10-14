@@ -803,7 +803,11 @@ public sealed partial class DocumentView : UserControl
         // so it gets only the pages in view, and the neighbours once it has stayed put for a moment.
         bool jumped = !_lastVisible.IsEmpty && (visible.Top >= _lastVisible.Bottom || visible.Bottom <= _lastVisible.Top);
         _lastVisible = visible;
-        if (jumped) _prefetchTimer.Start();
+        if (jumped)
+        {
+            _prefetchTimer.Stop();
+            _prefetchTimer.Start();
+        }
         var prefetch = jumped ? visible : new Rect(visible.X, visible.Y - visible.Height * 0.75, visible.Width, visible.Height * 2.5);
         var keep = new Rect(visible.X - visible.Width, visible.Y - visible.Height * 1.5, visible.Width * 3, visible.Height * 4);
         var wanted = PagesIn(prefetch).Take(80).ToHashSet();
