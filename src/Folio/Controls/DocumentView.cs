@@ -1367,8 +1367,9 @@ public sealed partial class DocumentView : UserControl
             e.Handled = true;
             return;
         }
+        // Presses on the pages focus the view already; the margins and scroll bars around them do too, so keys scroll it.
+        if (_document is not null) Focus(FocusState.Pointer);
         if (point.PointerDeviceType != PointerDeviceType.Mouse || !point.Properties.IsMiddleButtonPressed || _document is null || _presentation) return;
-        Focus(FocusState.Pointer);
         if (!StartMiddleScroll(point.Position)) return;
         CapturePointer(e.Pointer);
         e.Handled = true;
@@ -1664,6 +1665,46 @@ public sealed partial class DocumentView : UserControl
         }
     }
 
+    // Keys scroll by the same steps as Edge: a line is 40 DIP, a screen is 7/8 of the view so a
+    // little of the last one stays in sight.
+    private const double LineStep = 40;
+    private const double ScreenStep = 0.875;
+
+    private static bool IsKeyDown(VirtualKey key) =>
+        Microsoft.UI.Input.InputKeyboardSource.GetKeyStateForCurrentThread(key).HasFlag(Windows.UI.Core.CoreVirtualKeyStates.Down);
+
+    /// <summary>Where the view is headed: a scroll that's still animating counts as done, so repeated keys add up.</summary>
+    private (double X, double Y) ScrollTarget()
+    {
+        double z = Zoom;
+        return (_pendingContentX is { } x ? Math.Clamp(x * z, 0, _scroller.ScrollableWidth) : _scroller.HorizontalOffset,
+            _pendingContentY is { } y ? Math.Clamp(y * z, 0, _scroller.ScrollableHeight) : _scroller.VerticalOffset);
+    }
+
+    private void ScrollBy(double dx, double dy)
+    {
+        var (x, y) = ScrollTarget();
+        ScrollTo(dx == 0 ? null : Math.Clamp(x + dx, 0, _scroller.ScrollableWidth), dy == 0 ? null : Math.Clamp(y + dy, 0, _scroller.ScrollableHeight), null, false);
+    }
+
+    /// <summary>Scrolls a line; in single page mode, scrolling past the edge of the page turns it, as the wheel does.</summary>
+    private void ScrollLine(int direction)
+    {
+        if (_continuous)
+        {
+            ScrollBy(0, direction * LineStep);
+            return;
+        }
+        double y = ScrollTarget().Y;
+        if (direction > 0 && y >= _scroller.ScrollableHeight - 1) NextPage();
+        else if (direction < 0 && y <= 1 && _currentPage > 0)
+        {
+            PreviousPage();
+            ScrollTo(null, _scroller.ScrollableHeight, null, true);
+        }
+        else ScrollBy(0, direction * LineStep);
+    }
+
     private void OnPreviewKeyDown(object sender, KeyRoutedEventArgs e)
     {
         // Keys can scroll the view, which auto-scrolling would undo on its next frame.
@@ -1678,9 +1719,14 @@ public sealed partial class DocumentView : UserControl
             }
         }
         if (_document is null || e.OriginalSource is TextBox) return;
-        bool ctrl = Microsoft.UI.Input.InputKeyboardSource.GetKeyStateForCurrentThread(VirtualKey.Control).HasFlag(Windows.UI.Core.CoreVirtualKeyStates.Down);
+        bool ctrl = IsKeyDown(VirtualKey.Control);
+        bool shift = IsKeyDown(VirtualKey.Shift);
+        bool alt = IsKeyDown(VirtualKey.Menu);
         bool paged = !_continuous || _presentation;
+        // Like Edge, page keys turn pages when a whole page fits in the view.
+        bool pageKeysTurn = paged || _zoomMode == ZoomMode.FitPage;
         bool fitsWidth = _scroller.ScrollableWidth <= 1;
+        bool plain = !ctrl && !alt;
         switch (e.Key)
         {
             case VirtualKey.C when ctrl:
@@ -1695,26 +1741,44 @@ public sealed partial class DocumentView : UserControl
                 ClearSelection();
                 e.Handled = true;
                 break;
-            case VirtualKey.PageDown or VirtualKey.Space or VirtualKey.Enter when paged:
+            case VirtualKey.PageDown when plain && pageKeysTurn:
+            case VirtualKey.Space when plain && !shift && pageKeysTurn:
+            case VirtualKey.Enter when plain && paged:
             case VirtualKey.Right or VirtualKey.Down when _presentation:
-            case VirtualKey.Right when fitsWidth && !ctrl:
+            case VirtualKey.Right when plain && fitsWidth:
                 NextPage();
                 e.Handled = true;
                 break;
-            case VirtualKey.PageUp or VirtualKey.Back when paged:
+            case VirtualKey.PageUp when plain && pageKeysTurn:
+            case VirtualKey.Space when plain && shift && pageKeysTurn:
+            case VirtualKey.Back when plain && paged:
             case VirtualKey.Left or VirtualKey.Up when _presentation:
-            case VirtualKey.Left when fitsWidth && !ctrl:
+            case VirtualKey.Left when plain && fitsWidth:
                 PreviousPage();
                 e.Handled = true;
                 break;
-            case VirtualKey.Home when !ctrl && paged:
-            case VirtualKey.Home when ctrl:
+            case VirtualKey.PageDown or VirtualKey.PageUp or VirtualKey.Space when plain:
+                ScrollBy(0, (e.Key == VirtualKey.PageUp || e.Key == VirtualKey.Space && shift ? -1 : 1) * _scroller.ViewportHeight * ScreenStep);
+                e.Handled = true;
+                break;
+            case VirtualKey.Down or VirtualKey.Up when plain:
+                ScrollLine(e.Key == VirtualKey.Down ? 1 : -1);
+                e.Handled = true;
+                break;
+            case VirtualKey.Right or VirtualKey.Left when plain:
+                ScrollBy(e.Key == VirtualKey.Right ? LineStep : -LineStep, 0);
+                e.Handled = true;
+                break;
+            case VirtualKey.Home when !alt && paged:
                 GoToPage(0);
                 e.Handled = true;
                 break;
-            case VirtualKey.End when !ctrl && paged:
-            case VirtualKey.End when ctrl:
+            case VirtualKey.End when !alt && paged:
                 GoToPage(_document.PageCount - 1);
+                e.Handled = true;
+                break;
+            case VirtualKey.Home or VirtualKey.End when !alt:
+                ScrollTo(null, e.Key == VirtualKey.Home ? 0 : _scroller.ScrollableHeight, null, true);
                 e.Handled = true;
                 break;
         }

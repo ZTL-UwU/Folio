@@ -110,8 +110,8 @@ internal static class Dialogs
                 ("Ctrl+,", "Settings"),
             ]),
             ("Navigation", [
-                ("PgUp / PgDn", "Previous / next screen"),
-                ("Left / Right", "Previous / next page"), ("Ctrl+Home / Ctrl+End", "First / last page"),
+                ("Up / Down", "Scroll"), ("PgUp / PgDn", "Previous / next screen"), ("Shift+Space / Space", "Previous / next screen"),
+                ("Left / Right", "Previous / next page"), ("Home / End", "Beginning / end of document"),
                 ("F9", "Show or hide the sidebar"),
             ]),
             ("Search and selection", [
