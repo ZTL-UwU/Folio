@@ -271,20 +271,15 @@ public sealed partial class PrintDialog : ContentDialog
     }
 
     /// <summary>
-    /// Picks the paper with <paramref name="id"/>. One the printer doesn't list, such as a custom size
-    /// picked in its own dialog, leaves the list without a selection, so the job keeps the paper its
-    /// settings name.
+    /// Picks the paper with <paramref name="id"/>. No id, or one the printer doesn't list, such as a
+    /// custom size picked in its own dialog, leaves the list without a selection, so the job keeps the
+    /// paper its settings name.
     /// </summary>
     private void SelectPaper(short? id)
     {
         if (_printer is null || _printer.Papers.Count == 0) return;
-        if (id is not null && _printer.Papers.All(p => p.Id != id))
-        {
-            PaperBox.SelectedItem = null;
-            return;
-        }
-        var paper = _printer.Papers.FirstOrDefault(p => p.Id == id) ?? _printer.Papers[0];
-        Choose(PaperBox, paper);
+        if (_printer.Papers.FirstOrDefault(p => p.Id == id) is { } paper) Choose(PaperBox, paper);
+        else PaperBox.SelectedItem = null;
     }
 
     private PaperSize? SelectedPaper => Choice<PaperSize?>(PaperBox, null);
@@ -802,7 +797,8 @@ public sealed partial class PrintDialog : ContentDialog
     {
         var picker = new FileSavePicker(_window.AppWindow.Id)
         {
-            SuggestedFileName = Path.GetFileNameWithoutExtension(_title),
+            // The file's name rather than the title, which can hold characters a file name can't.
+            SuggestedFileName = Path.GetFileNameWithoutExtension(_document.FilePath),
             SuggestedStartLocation = PickerLocationId.DocumentsLibrary,
         };
         picker.FileTypeChoices.Add(extension == ".pdf" ? "PDF document" : "XPS document", [extension]);

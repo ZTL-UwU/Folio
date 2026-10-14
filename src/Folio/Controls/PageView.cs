@@ -472,16 +472,16 @@ internal sealed partial class PageView : Canvas
 
     /// <summary>
     /// Copies the <paramref name="width"/> x <paramref name="height"/> pixels at (<paramref name="x"/>, <paramref name="y"/>)
-    /// into a bitmap for an <see cref="Image"/>. Unlike a WriteableBitmap, it keeps no copy of the pixels in
-    /// system memory once they're on the GPU, and disposing it releases it right away rather than whenever
-    /// the garbage collector gets to its wrapper, which with a small managed heap can take a long time.
+    /// into a bitmap for an <see cref="Image"/>. Disposing it releases the pixels, in system memory and on the
+    /// GPU, right away rather than whenever the garbage collector gets to its wrapper, which with a small
+    /// managed heap can take a long time.
     /// <paramref name="buffer"/> has to stay alive until this completes. Call it on the UI thread.
     /// </summary>
     internal static async Task<SoftwareBitmapSource> ToSourceAsync(PixelBuffer buffer, int x, int y, int width, int height)
     {
         // Filling a new bitmap touches fresh memory, which took up to several milliseconds a page on
         // the UI thread; a background thread does that, and only the upload starts here.
-        using var bitmap = await Task.Run(() =>
+        var bitmap = await Task.Run(() =>
         {
             var bitmap = new SoftwareBitmap(BitmapPixelFormat.Bgra8, width, height, BitmapAlphaMode.Premultiplied);
             try
@@ -498,12 +498,16 @@ internal sealed partial class PageView : Canvas
         var source = new SoftwareBitmapSource();
         try
         {
+            // The source keeps the bitmap and copies it to the GPU again whenever it loses its copy there,
+            // such as after the image leaves the tree or the device is lost, so the bitmap stays open until
+            // the source is disposed, which closes it. Closing it before then crashes the next copy.
             await source.SetBitmapAsync(bitmap);
             return source;
         }
         catch
         {
             source.Dispose();
+            bitmap.Dispose();
             throw;
         }
     }
