@@ -102,6 +102,10 @@ internal sealed class PrinterDetails
     public IReadOnlyList<PaperSize> Papers { get; init; } = [];
     public bool CanDuplex { get; init; }
     public bool IsColor { get; init; }
+    /// <summary>Most copies the driver makes itself; 1 if it can't.</summary>
+    public int MaxCopies { get; init; } = 1;
+    /// <summary>Whether the driver can collate the copies it makes.</summary>
+    public bool CanCollate { get; init; }
     public required DevMode Defaults { get; init; }
 
     /// <summary>Printers that write a file (Microsoft Print to PDF, XPS) and the extension of that file.</summary>
@@ -193,6 +197,8 @@ internal static unsafe partial class Printers
             Papers = ReadPapers(name, port),
             CanDuplex = DeviceCapabilitiesW(name, port, DC_DUPLEX, null, null) == 1,
             IsColor = DeviceCapabilitiesW(name, port, DC_COLORDEVICE, null, null) == 1,
+            MaxCopies = Math.Max(1, DeviceCapabilitiesW(name, port, DC_COPIES, null, null)),
+            CanCollate = DeviceCapabilitiesW(name, port, DC_COLLATE, null, null) == 1,
             Defaults = defaults,
         };
     }
@@ -338,7 +344,7 @@ internal static unsafe partial class Printers
 
     private const uint DM_OUT_BUFFER = 2, DM_IN_PROMPT = 4, DM_IN_BUFFER = 8;
     private const int IDOK = 1;
-    private const ushort DC_PAPERS = 2, DC_PAPERSIZE = 3, DC_DUPLEX = 7, DC_PAPERNAMES = 16, DC_COLORDEVICE = 32;
+    private const ushort DC_PAPERS = 2, DC_PAPERSIZE = 3, DC_DUPLEX = 7, DC_PAPERNAMES = 16, DC_COPIES = 18, DC_COLLATE = 22, DC_COLORDEVICE = 32;
     private const int HORZRES = 8, VERTRES = 10, LOGPIXELSX = 88, LOGPIXELSY = 90;
     private const int PHYSICALWIDTH = 110, PHYSICALHEIGHT = 111, PHYSICALOFFSETX = 112, PHYSICALOFFSETY = 113;
 

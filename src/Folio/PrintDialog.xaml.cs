@@ -288,8 +288,8 @@ public sealed partial class PrintDialog : ContentDialog
     private DevMode JobSettings(DevMode settings)
     {
         var job = settings.Clone();
-        // Sheets are turned by the layout instead (see PrintLayout.ToPaper), and copies are sent as
-        // separate sheets, so every printer gets the same pages and the preview shows what comes out.
+        // Sheets are turned by the layout instead (see PrintLayout.ToPaper), so every printer gets the
+        // same pages and the preview shows what comes out. Copies are added when the job is sent.
         job.Landscape = false;
         job.Copies = 1;
         job.Collate = false;
@@ -749,8 +749,24 @@ public sealed partial class PrintDialog : ContentDialog
                 output = await PickOutputAsync(extension) ?? throw new OperationCanceledException();
                 cts.Token.ThrowIfCancellationRequested();
             }
+            // The printer makes the copies when it can, so the document is only sent once.
+            int copies = Copies;
+            bool collate = CollateBox.IsChecked == true;
+            bool printerCopies = PrintLayout.PrinterMakesCopies(copies, collate, twoSided, printer.MaxCopies, printer.CanCollate);
+            if (printerCopies)
+            {
+                job.Copies = (short)copies;
+                job.Collate = collate;
+            }
             job = await Task.Run(() => Printers.Merge(printer.Name, job));
-            var request = new PrintRequest(printer.Name, job, _title, output, pages, Layout, Copies, CollateBox.IsChecked == true, twoSided,
+            if (printerCopies && (job.Copies != copies || (job.Collate ?? false) != collate))
+            {
+                // The driver didn't keep them after all: send the copies instead.
+                job.Copies = 1;
+                job.Collate = false;
+                printerCopies = false;
+            }
+            var request = new PrintRequest(printer.Name, job, _title, output, pages, Layout, printerCopies ? 1 : copies, collate, twoSided,
                 AnnotationsBox.IsChecked == true, Grayscale, ImageBox.IsChecked == true);
             FailedPages = await PrintJob.RunAsync(_document, request, progress, cts.Token);
             Remember(printer);

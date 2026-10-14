@@ -273,4 +273,13 @@ public static class PrintLayout
 
     /// <summary>Sheets of paper used to print <paramref name="sequence"/>.</summary>
     public static int PaperCount(IReadOnlyCollection<int?> sequence, bool twoSided) => twoSided ? (sequence.Count + 1) / 2 : sequence.Count;
+
+    /// <summary>
+    /// Whether the printer can make the copies itself, so the document is sent once rather than once
+    /// per copy: when its driver takes that many and, for collated copies, can collate. Uncollated
+    /// two-sided copies are always sent, as drivers differ in whether they repeat each side or each
+    /// sheet of paper.
+    /// </summary>
+    public static bool PrinterMakesCopies(int copies, bool collate, bool twoSided, int maxCopies, bool canCollate) =>
+        copies > 1 && copies <= maxCopies && (collate ? canCollate : !twoSided);
 }

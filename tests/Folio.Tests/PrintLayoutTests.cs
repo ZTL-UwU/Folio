@@ -152,4 +152,15 @@ public sealed class PrintLayoutTests
         Assert.Equal([0, 1, 0, 1, 2, null, 2], PrintLayout.Sequence(3, 2, collate: false, twoSided: true));
         Assert.Equal(4, PrintLayout.PaperCount(PrintLayout.Sequence(3, 2, collate: false, twoSided: true), twoSided: true));
     }
+
+    [Theory]
+    [InlineData(3, true, false, 999, true, true)]
+    [InlineData(3, false, false, 999, false, true)]
+    [InlineData(3, true, true, 999, true, true)]
+    [InlineData(1, true, false, 999, true, false)] // nothing to copy
+    [InlineData(3, true, false, 999, false, false)] // can't collate
+    [InlineData(3, false, true, 999, true, false)] // uncollated two-sided
+    [InlineData(3, false, false, 2, true, false)] // too many
+    public void PrinterMakesCopies_OnlyWhenTheDriverCan(int copies, bool collate, bool twoSided, int maxCopies, bool canCollate, bool expected) =>
+        Assert.Equal(expected, PrintLayout.PrinterMakesCopies(copies, collate, twoSided, maxCopies, canCollate));
 }

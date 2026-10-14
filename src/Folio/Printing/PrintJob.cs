@@ -6,7 +6,10 @@ using Windows.Graphics;
 
 namespace Folio.Printing;
 
-/// <summary>Everything a print job needs; <see cref="Pages"/> are zero-based, in print order.</summary>
+/// <summary>
+/// Everything a print job needs; <see cref="Pages"/> are zero-based, in print order. <see cref="Copies"/>
+/// are the copies sent; any the printer makes itself are in <see cref="Settings"/>.
+/// </summary>
 internal sealed record PrintRequest(
     string Printer,
     DevMode Settings,
@@ -47,34 +50,46 @@ internal static partial class PrintJob
             await Task.Run(() => StartDoc(dc, request), token).ConfigureAwait(false);
             started = true;
 
-            int failed = 0;
-            var drawn = new HashSet<int>();
+            // Counted once, not once per copy.
+            var failed = new HashSet<int>();
             for (int n = 0; n < sequence.Count; n++)
             {
                 token.ThrowIfCancellationRequested();
-                var sheet = sequence[n] is { } i ? sheets[i] : null;
-                failed += await PdfWorker.Run(() =>
+                // Starting and ending a page can wait on the spooler, so they stay off the PDFium thread,
+                // which only draws, a page at a time, letting the viewer's own renders in between.
+                await Task.Run(() =>
                 {
                     if (StartPage(dc) <= 0) throw new InvalidOperationException("The printer stopped accepting pages.");
-                    int failures = 0;
-                    if (sheet is not null)
+                }, token).ConfigureAwait(false);
+                if (sequence[n] is { } i)
+                {
+                    var sheet = sheets[i];
+                    foreach (var placement in sheet.Pages)
                     {
-                        foreach (var placement in sheet.Pages)
+                        bool drawn = await PdfWorker.Run(() =>
                         {
                             try
                             {
                                 Draw(document, dc, sheet, placement, paper, dpiX, dpiY, offsetX, offsetY, request, token);
+                                return true;
                             }
                             catch (InvalidDataException)
                             {
-                                // Counted once, not once per copy.
-                                if (drawn.Add(placement.Page)) failures++;
+                                return false;
                             }
-                        }
+                            finally
+                            {
+                                // GDI batches calls per thread, and EndPage comes from another.
+                                GdiFlush();
+                            }
+                        }, WorkPriority.Normal, token).ConfigureAwait(false);
+                        if (!drawn) failed.Add(placement.Page);
                     }
+                }
+                await Task.Run(() =>
+                {
                     if (EndPage(dc) <= 0) throw new InvalidOperationException("The printer stopped accepting pages.");
-                    return failures;
-                }, WorkPriority.Normal, token).ConfigureAwait(false);
+                }, token).ConfigureAwait(false);
                 progress.Report((request.TwoSided ? (n + 2) / 2 : n + 1, paperTotal));
             }
 
@@ -83,7 +98,7 @@ internal static partial class PrintJob
                 if (EndDoc(dc) <= 0) throw new InvalidOperationException("The printer couldn't finish the document.");
             }).ConfigureAwait(false);
             finished = true;
-            return failed;
+            return failed.Count;
         }
         finally
         {
@@ -153,4 +168,5 @@ internal static partial class PrintJob
     [LibraryImport("gdi32")] private static partial int EndPage(IntPtr dc);
     [LibraryImport("gdi32")] private static partial int EndDoc(IntPtr dc);
     [LibraryImport("gdi32")] private static partial int AbortDoc(IntPtr dc);
+    [LibraryImport("gdi32")] [return: MarshalAs(UnmanagedType.Bool)] private static partial bool GdiFlush();
 }
