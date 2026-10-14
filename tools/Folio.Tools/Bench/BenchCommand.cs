@@ -55,23 +55,23 @@ internal static class BenchCommand
                 else Console.WriteLine($"{name} isn't installed; skipping it.");
             }
             CloseRunning(viewers, closeRunning);
-            if (folioOption is null && names.Contains("Folio"))
-            {
-                PublishFolio(Path.GetDirectoryName(folio)!);
-                Handler.PublishFolio(Path.GetDirectoryName(folio)!);
-            }
+            if (folioOption is null && names.Contains("Folio")) PublishFolio(Path.GetDirectoryName(folio)!);
+            // A given Folio build is measured with the handler next to it, as the package has it.
+            string? folioHandler = !names.Contains("Folio") ? null
+                : folioOption is null ? Handler.PublishFolio()
+                : Path.Combine(Path.GetDirectoryName(folio)!, Handler.FolioDll);
             var handlers = new List<Handler>();
             foreach (var name in names.Where(n => Handler.All.Contains(n)))
             {
-                if (Handler.Find(name, folio) is { } handler) handlers.Add(handler);
-                else Console.WriteLine(name == "Folio" ? $"Folio's thumbnail handler isn't next to {folio}; skipping its thumbnails." : $"{name} isn't installed; skipping it.");
+                if (Handler.Find(name, folioHandler) is { } handler) handlers.Add(handler);
+                else Console.WriteLine(name == "Folio" ? $"There's no {Handler.FolioDll} next to {folio}; skipping Folio's thumbnails." : $"{name} isn't installed; skipping it.");
             }
             if (viewers.Count == 0 && handlers.Count == 0) throw new ToolException("None of the apps are installed.");
 
             var documents = await Documents.PrepareAsync();
             Directory.CreateDirectory(outDir);
             var runs = viewers.Count > 0 ? await MeasureAsync(viewers, documents, settings, outDir, saveFrames) : [];
-            var (thumbnails, firstThumbnail) = handlers.Count > 0 ? Thumbnails.Measure(handlers, documents, settings, thumbnailSize, outDir) : ([], []);
+            var (thumbnails, coldThumbnails) = handlers.Count > 0 ? Thumbnails.Measure(handlers, documents, settings, thumbnailSize, outDir) : ([], []);
 
             var versions = viewers.Where(v => v.Version is not null).ToDictionary(v => v.Name, v => v.Version!);
             foreach (var handler in handlers.Where(h => h.Version is not null)) versions.TryAdd(handler.Name, handler.Version!);
@@ -89,7 +89,7 @@ internal static class BenchCommand
                 Versions = versions,
                 ThumbnailSize = handlers.Count > 0 ? thumbnailSize : null,
                 Thumbnails = handlers.Count > 0 ? documents.SelectMany(d => handlers.Select(h => ThumbnailSummary.Of(h.Name, d.Id, thumbnails[(h.Name, d.Id)]))).ToList() : null,
-                ThumbnailFirstMs = handlers.Count > 0 ? firstThumbnail : null,
+                ThumbnailColdMs = handlers.Count > 0 ? coldThumbnails : null,
             };
             string json = Path.Combine(outDir, "results.json");
             results.Save(json);
@@ -250,10 +250,11 @@ internal static class BenchCommand
                         $"{t.Processes,9:0}  {t.StreamCalls,12:N0}  {read,7}  {(t.Width is null ? "-" : $"{t.Width}x{t.Height}")}");
                 }
             }
-            if (results.ThumbnailFirstMs is { Count: > 0 } first)
+            if (results.ThumbnailColdMs is { Count: > 0 } cold)
             {
                 Console.WriteLine();
-                Console.WriteLine("First thumbnail, which also loaded the handler: " + string.Join(", ", first.Select(f => $"{f.Key} {f.Value:N0} ms")) + ".");
+                Console.WriteLine("Left out of the medians, thumbnails from a host that had just started, which also loaded the handler: " +
+                    string.Join("; ", cold.Select(c => $"{c.Key} {string.Join(", ", c.Value.Select(ms => $"{ms:N0} ms"))}")) + ".");
             }
         }
 

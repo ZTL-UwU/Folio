@@ -20,8 +20,8 @@ internal sealed record BenchResults
     /// <summary>The size File Explorer thumbnails were asked for, in pixels; missing, like the rest, from results saved before they were measured.</summary>
     public int? ThumbnailSize { get; init; }
     public List<ThumbnailSummary>? Thumbnails { get; init; }
-    /// <summary>Each handler's first thumbnail, which also loaded it.</summary>
-    public Dictionary<string, double>? ThumbnailFirstMs { get; init; }
+    /// <summary>Each handler's thumbnails from a host that had just started, which also loaded the handler: the first, and any after a host was restarted.</summary>
+    public Dictionary<string, List<double>>? ThumbnailColdMs { get; init; }
 
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web) { WriteIndented = true };
 

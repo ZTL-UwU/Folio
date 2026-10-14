@@ -7,8 +7,11 @@ using Windows.Storage.Streams;
 
 namespace Folio.Tools.Bench;
 
-/// <summary>One thumbnail: how long it took, and what it cost.</summary>
-internal sealed record ThumbnailRun(double? Ms, double CpuMs, int Processes, long StreamCalls, long BytesRead, int Width, int Height, string? Error);
+/// <summary>
+/// One thumbnail: how long it took, and what it cost. <paramref name="Cold"/> if it was the first thumbnail of a host
+/// that had just started, which also loaded the handler.
+/// </summary>
+internal sealed record ThumbnailRun(double? Ms, double CpuMs, int Processes, long StreamCalls, long BytesRead, int Width, int Height, bool Cold, string? Error);
 
 /// <summary>
 /// A process of this tool (the hidden <c>thumbnail-host</c> command) that loads one handler and makes thumbnails with
@@ -27,18 +30,16 @@ internal sealed class ThumbnailHost(Handler handler) : IDisposable
     private Process? _process;
     private Job? _job;
     private BlockingCollection<string> _replies = [];
-    private bool _served;
+    /// <summary>The host has just started, so its next thumbnail loads the handler.</summary>
+    private bool _fresh;
 
     public Handler Handler => handler;
-
-    /// <summary>The first thumbnail the host made, which also loaded the handler, as a surrogate that's just started does.</summary>
-    public double? FirstMs { get; private set; }
 
     public ThumbnailRun Render(string pdf, int size, string? png, TimeSpan timeout)
     {
         Start();
-        bool first = !_served;
-        _served = true;
+        bool cold = _fresh;
+        _fresh = false;
         using var stream = new CountingFileStream(pdf);
         string marshaled = Convert.ToHexString(Com.MarshalStream(stream));
         var (cpu, processes) = _job!.Totals();
@@ -48,19 +49,18 @@ internal sealed class ThumbnailHost(Handler handler) : IDisposable
         if (reply is null)
         {
             Stop();
-            return new(null, 0, 0, stream.Calls, stream.BytesRead, 0, 0, $"no thumbnail after {timeout.TotalSeconds:0} s");
+            return new(null, 0, 0, stream.Calls, stream.BytesRead, 0, 0, cold, $"no thumbnail after {timeout.TotalSeconds:0.#} s");
         }
-        // The PNG is saved after the time is taken, and before the next thumbnail's CPU time is.
+        // The PNG is saved after the time is taken, and before the next thumbnail's CPU time is. If the host
+        // doesn't finish, the next thumbnail starts a new one, which makes that one cold.
         if (Reply(timeout) != "@done") Stop();
 
         string[] parts = reply.Split(' ');
         double cpuMs = (cpuAfter - cpu).TotalMilliseconds;
         int started = processesAfter - processes;
-        if (parts[0] != "@ok") return new(null, cpuMs, started, stream.Calls, stream.BytesRead, 0, 0, $"no thumbnail ({parts[1]})");
-        double ms = double.Parse(parts[1], CultureInfo.InvariantCulture);
-        if (first) FirstMs = ms;
-        return new(ms, cpuMs, started, stream.Calls, stream.BytesRead,
-            int.Parse(parts[2], CultureInfo.InvariantCulture), int.Parse(parts[3], CultureInfo.InvariantCulture), null);
+        if (parts[0] != "@ok") return new(null, cpuMs, started, stream.Calls, stream.BytesRead, 0, 0, cold, $"no thumbnail ({parts[1]})");
+        return new(double.Parse(parts[1], CultureInfo.InvariantCulture), cpuMs, started, stream.Calls, stream.BytesRead,
+            int.Parse(parts[2], CultureInfo.InvariantCulture), int.Parse(parts[3], CultureInfo.InvariantCulture), cold, null);
     }
 
     private void Start()
@@ -81,6 +81,7 @@ internal sealed class ThumbnailHost(Handler handler) : IDisposable
         foreach (var arg in (string[])["thumbnail-host", handler.Dll, handler.Clsid.ToString()]) info.ArgumentList.Add(arg);
         var replies = _replies = [];
         _process = Process.Start(info)!;
+        _fresh = true;
         _job = new Job();
         _job.Add(_process);
         _process.OutputDataReceived += (_, e) =>
@@ -189,11 +190,21 @@ internal sealed class ThumbnailHost(Handler handler) : IDisposable
     private static unsafe int Load(string dll, Guid clsid, out nint factory)
     {
         factory = 0;
-        // By path, so the DLL's own folder is searched for what it needs.
-        var getClassObject = (delegate* unmanaged[Stdcall]<Guid*, Guid*, nint*, int>)NativeLibrary.GetExport(NativeLibrary.Load(dll), "DllGetClassObject");
+        nint getClassObject;
+        try
+        {
+            // By path, so the DLL's own folder is searched for what it needs.
+            getClassObject = NativeLibrary.GetExport(NativeLibrary.Load(dll), "DllGetClassObject");
+        }
+        catch (Exception e)
+        {
+            // Not there, built for another architecture, or not a COM server: reported as the thumbnail's error.
+            Console.Error.WriteLine($"Can't load {dll}: {e.Message}");
+            return e.HResult < 0 ? e.HResult : unchecked((int)0x80004005);
+        }
         Guid iid = Com.IID_IClassFactory;
         nint result;
-        int hr = getClassObject(&clsid, &iid, &result);
+        int hr = ((delegate* unmanaged[Stdcall]<Guid*, Guid*, nint*, int>)getClassObject)(&clsid, &iid, &result);
         if (hr >= 0) factory = result;
         return hr;
     }
@@ -228,7 +239,8 @@ internal sealed class ThumbnailHost(Handler handler) : IDisposable
         bool hasAlpha = false;
         for (int i = 3; i < pixels.Length && !hasAlpha; i += 4) hasAlpha = pixels[i] != 0;
         if (!hasAlpha) for (int i = 3; i < pixels.Length; i += 4) pixels[i] = 255;
-        EncodeAsync().GetAwaiter().GetResult();
+        // On the thread pool: the host thread is single-threaded and runs no message loop to wait on.
+        Task.Run(EncodeAsync).GetAwaiter().GetResult();
 
         async Task EncodeAsync()
         {
