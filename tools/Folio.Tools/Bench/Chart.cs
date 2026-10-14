@@ -6,7 +6,7 @@ namespace Folio.Tools.Bench;
 
 /// <summary>
 /// Draws bench results as the bar chart in the README: time to first page and memory, side by side, grouped by
-/// document, with Folio highlighted.
+/// document, and below them the time to a File Explorer thumbnail of each document, with Folio highlighted.
 /// </summary>
 internal static class Chart
 {
@@ -14,12 +14,48 @@ internal static class Chart
 
     public static void Render(BenchResults results, IReadOnlyList<string> apps, string png)
     {
-        var documents = results.Documents.Where(d => results.Results.Any(r => r.Document == d.Id)).ToList();
-        string time = Panel(results, documents, apps, s => s.PageMs, "ms", out int height);
-        string memory = Panel(results, documents, apps, s => s.MemoryMB, "MB", out _);
+        var viewers = apps.Where(a => results.Results.Any(r => r.App == a)).ToList();
+        var handlers = apps.Where(a => results.Thumbnails?.Any(t => t.App == a) == true).ToList();
+        // Room for the longest app name at 13 px, right-aligned against the bars; the same in every panel, so the bars line up.
+        int left = Math.Max(70, 20 + 8 * viewers.Concat(handlers).DefaultIfEmpty("").Max(a => a.Length));
+        var rows = new StringBuilder();
+        // 28 px padding top and bottom.
+        int pageHeight = 28 + 28;
 
-        // 28 px padding, 20 px headings, 6 px gap, the plots, 28 px padding.
-        int pageHeight = 28 + 20 + 6 + height + 28;
+        if (viewers.Count > 0)
+        {
+            var documents = results.Documents.Where(d => results.Results.Any(r => r.Document == d.Id)).ToList();
+            double? Viewer(string app, string document, Func<Summary, double?> metric) =>
+                results.Results.FirstOrDefault(r => r.App == app && r.Document == document) is { } s ? metric(s) : null;
+            string time = Panel(documents, viewers, (a, d) => Viewer(a, d, s => s.PageMs), "ms", results.Versions, left, out int height);
+            string memory = Panel(documents, viewers, (a, d) => Viewer(a, d, s => s.MemoryMB), "MB", results.Versions, left, out _);
+            rows.Append($"""
+                <div class="panels">
+                  <section><h2>Time to first page <span>· ms, lower is better</span></h2>{time}</section>
+                  <section><h2>Memory <span>· MB, lower is better</span></h2>{memory}</section>
+                </div>
+                """);
+            // 20 px headings, 6 px gap, the plots.
+            pageHeight += 20 + 6 + height;
+        }
+
+        if (handlers.Count > 0)
+        {
+            var documents = results.Documents.Where(d => results.Thumbnails!.Any(t => t.Document == d.Id)).ToList();
+            double? Thumbnail(string app, string document) =>
+                results.Thumbnails!.FirstOrDefault(t => t.App == app && t.Document == document)?.Ms;
+            string thumbnail = Panel(documents, handlers, Thumbnail, "ms", results.Versions, left, out int height);
+            // The right of this row is left empty for now.
+            rows.Append($"""
+                <div class="panels">
+                  <section><h2>File Explorer thumbnail <span>· ms at {results.ThumbnailSize} px, lower is better</span></h2>{thumbnail}</section>
+                  <section></section>
+                </div>
+                """);
+            // 28 px between rows, 20 px heading, 6 px gap, the plot.
+            pageHeight += (viewers.Count > 0 ? 28 : 0) + 20 + 6 + height;
+        }
+
         string html = $$"""
             <!DOCTYPE html>
             <html lang="en">
@@ -33,6 +69,7 @@ internal static class Chart
                      font-family: "Segoe UI Variable Text", "Segoe UI", sans-serif; color: #1b2a41; }
               .panels { display: grid; grid-template-columns: 1fr 1fr; gap: 40px; }
               h2 { font-size: 15px; line-height: 20px; font-weight: 600; }
+              .panels + .panels { margin-top: 28px; }
               h2 span { font-weight: 400; color: #74839a; }
               svg { display: block; margin-top: 6px; }
               svg text { font-family: inherit; }
@@ -40,10 +77,7 @@ internal static class Chart
             </head>
             <body>
             <main>
-              <div class="panels">
-                <section><h2>Time to first page <span>· ms, lower is better</span></h2>{{time}}</section>
-                <section><h2>Memory <span>· MB, lower is better</span></h2>{{memory}}</section>
-              </div>
+            {{rows}}
             </main>
             </body>
             </html>
@@ -51,15 +85,14 @@ internal static class Chart
         HtmlRenderer.Render(html, png, Width, pageHeight, scale: 2);
     }
 
-    private static string Panel(BenchResults results, List<DocumentInfo> documents, IReadOnlyList<string> apps,
-        Func<Summary, double?> metric, string unit, out int height)
+    /// <summary>
+    /// Bars for each of <paramref name="apps"/>, grouped by document, on an axis up to the largest value.
+    /// </summary>
+    private static string Panel(List<DocumentInfo> documents, IReadOnlyList<string> apps, Func<string, string, double?> Value,
+        string unit, Dictionary<string, string>? versions, int left, out int height)
     {
         const int Right = PanelWidth - 64, Top = 8, BarHeight = 18, RowHeight = 32, GroupGap = 16, LabelHeight = 24;
-        // Room for the longest app name at 13 px, right-aligned against the bars.
-        int left = Math.Max(70, 20 + 8 * apps.Max(a => a.Length));
-        double? Value(string app, string document) => results.Results.FirstOrDefault(r => r.App == app && r.Document == document) is { } s ? metric(s) : null;
-        double max = documents.SelectMany(d => apps.Select(a => Value(a, d.Id) ?? 0)).DefaultIfEmpty(0).Max();
-        var (axisMax, step) = Axis(max);
+        var (axisMax, step) = Axis(documents.SelectMany(d => apps.Select(a => Value(a, d.Id) ?? 0)).DefaultIfEmpty(0).Max());
         double X(double value) => left + value / axisMax * (Right - left);
         int plotBottom = Top + documents.Count * (LabelHeight + apps.Count * RowHeight) + (documents.Count - 1) * GroupGap;
         height = plotBottom + 24;
@@ -85,7 +118,7 @@ internal static class Chart
                 double center = y + RowHeight / 2.0;
                 bool folio = app == "Folio";
                 string weight = folio ? "600" : "400", color = folio ? "#1b2a41" : "#4a5a72";
-                if (results.Versions?.GetValueOrDefault(app) is { } version)
+                if (versions?.GetValueOrDefault(app) is { } version)
                 {
                     // The name nudged up to make room for the version under it, the two centred on the bar together.
                     svg.Append($"""<text x="{left - 10}" y="{N(center + 0.5)}" text-anchor="end" font-size="13" font-weight="{weight}" fill="{color}">{HtmlEncode(app)}</text>""");

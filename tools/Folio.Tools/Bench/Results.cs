@@ -15,8 +15,13 @@ internal sealed record BenchResults
     public required double SettleSeconds { get; init; }
     public required List<DocumentInfo> Documents { get; init; }
     public required List<Summary> Results { get; init; }
-    /// <summary>Each viewer's version, such as "26.2" or, for Folio, "1.0 · 48ea997"; missing from results saved before versions were recorded.</summary>
+    /// <summary>Each viewer's and thumbnail handler's version, such as "26.2" or, for Folio, "1.0 · 48ea997"; missing from results saved before versions were recorded.</summary>
     public Dictionary<string, string>? Versions { get; init; }
+    /// <summary>The size File Explorer thumbnails were asked for, in pixels; missing, like the rest, from results saved before they were measured.</summary>
+    public int? ThumbnailSize { get; init; }
+    public List<ThumbnailSummary>? Thumbnails { get; init; }
+    /// <summary>Each handler's first thumbnail, which also loaded it.</summary>
+    public Dictionary<string, double>? ThumbnailFirstMs { get; init; }
 
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web) { WriteIndented = true };
 
@@ -72,7 +77,7 @@ internal sealed record Summary(string App, string Document, int Succeeded, int R
             Median(ok.Select(r => (double?)r.Processes)));
     }
 
-    private static double? Median(IEnumerable<double?> values)
+    public static double? Median(IEnumerable<double?> values)
     {
         var sorted = values.OfType<double>().Order().ToList();
         if (sorted.Count == 0) return null;
