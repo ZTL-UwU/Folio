@@ -544,7 +544,7 @@
                     </SelectorBarItem>
                 </SelectorBar>
 
-                <!--  Thumbnails  -->
+                <!--  Thumbnails. No scrolling placeholders: they lay out items before binding them, far shorter than they end up, so the list's estimated length keeps changing while its scroll bar is dragged and the thumb slips away from the pointer  -->
                 <GridView
                     x:Name="ThumbnailList"
                     Grid.Row="1"
@@ -552,7 +552,8 @@
                     ContainerContentChanging="OnThumbnailContainerContentChanging"
                     IsItemClickEnabled="True"
                     ItemClick="OnThumbnailClick"
-                    SelectionMode="Single">
+                    SelectionMode="Single"
+                    ShowsScrollingPlaceholders="False">
                     <GridView.ItemsPanel>
                         <!--  Not ItemsWrapGrid: it sizes every item like the first, cropping pages of other sizes  -->
                         <ItemsPanelTemplate>
