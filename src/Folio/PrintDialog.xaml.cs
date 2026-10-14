@@ -109,6 +109,17 @@ public sealed partial class PrintDialog : ContentDialog
         };
         foreach (var box in new[] { PagesBox, OrientationBox, ColorBox, DuplexBox, PerSheetBox, ScaleBox, SubsetBox }) box.SelectedIndex = 0;
         _updating = false;
+        foreach (var box in new[] { PrinterBox, PaperBox, PagesBox, OrientationBox, ColorBox, DuplexBox, PerSheetBox, ScaleBox, SubsetBox })
+        {
+            // An open list empties the box, which would shrink one showing two lines and pull the
+            // settings below it (and the list) up, so it keeps its height until the list closes.
+            box.DropDownOpened += (_, _) =>
+            {
+                ArrowCursor.Show();
+                box.MinHeight = box.ActualHeight;
+            };
+            box.DropDownClosed += (_, _) => box.ClearValue(MinHeightProperty);
+        }
 
         // The sheet fades in when it first shows, rather than popping in once its pages are drawn.
         var fadeIn = ElementCompositionPreview.GetElementVisual(Sheet).Compositor.CreateScalarKeyFrameAnimation();

@@ -1523,18 +1523,7 @@ public sealed partial class DocumentView : UserControl
     [System.Runtime.InteropServices.DllImport("user32.dll")]
     private static extern uint GetDoubleClickTime();
 
-    [System.Runtime.InteropServices.DllImport("user32.dll", EntryPoint = "LoadCursorW")]
-    private static extern IntPtr LoadSystemCursor(IntPtr instance, IntPtr name);
-
-    [System.Runtime.InteropServices.DllImport("user32.dll", EntryPoint = "SetCursor")]
-    private static extern IntPtr SetSystemCursor(IntPtr cursor);
-
-    /// <summary>
-    /// A menu opened under the pointer shows a stale cursor (often a resize arrow) until the pointer moves,
-    /// so show the arrow it gets then right away.
-    /// </summary>
-    private static void ShowArrowWhenOpened(FlyoutBase flyout) =>
-        flyout.Opened += (_, _) => SetSystemCursor(LoadSystemCursor(IntPtr.Zero, 32512 /* IDC_ARROW */));
+    private static void ShowArrowWhenOpened(FlyoutBase flyout) => flyout.Opened += (_, _) => ArrowCursor.Show();
 
     private long _lastClickTime;
     private Point _lastClickPoint;
