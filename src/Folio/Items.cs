@@ -129,10 +129,19 @@ public sealed class AttachmentItem(PdfAttachment attachment)
     }
 }
 
-public sealed class SearchItem(SearchHit hit, string pageLabel)
+public sealed partial class SearchItem(SearchHit hit, string pageLabel) : ObservableItem
 {
+    private bool _isCurrent;
+
     public SearchHit Hit { get; } = hit;
     public string Page { get; } = pageLabel;
+
+    /// <summary>The result shown in the document, marked in the list.</summary>
+    public bool IsCurrent
+    {
+        get => _isCurrent;
+        set => Set(ref _isCurrent, value);
+    }
 }
 
 /// <summary>

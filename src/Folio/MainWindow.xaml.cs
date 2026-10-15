@@ -58,6 +58,11 @@ public sealed partial class MainWindow : Window
     private FileSystemWatcher? _watcher;
     private DateTime _ignoreWatcherUntil;
     private int _searchIndex = -1;
+    /// <summary>
+    /// The search picked the current result, and keeps it at the top of the list while it adds the ones after it,
+    /// until another is picked.
+    /// </summary>
+    private bool _searchResultAtTop;
     private string _searchQuery = "";
     /// <summary>The options <see cref="_searchQuery"/> was searched with.</summary>
     private SearchOptions _searchOptions;
@@ -1309,6 +1314,7 @@ public sealed partial class MainWindow : Window
         _searchCts?.Cancel();
         _searchItems.Clear();
         _searchIndex = -1;
+        _searchResultAtTop = false;
         Viewer.ClearSearch();
         _searchQuery = query.Trim();
         if (_document is null) return;
@@ -1382,12 +1388,17 @@ public sealed partial class MainWindow : Window
         {
             // The list forgets its selection when reset.
             SearchResultList.SelectedIndex = _searchIndex;
+            // Results listed after the current one let it scroll further up.
+            if (_searchResultAtTop) SearchResultList.ScrollIntoView(_searchItems[_searchIndex], ScrollIntoViewAlignment.Leading);
             return;
         }
         for (int i = first; i < _searchItems.Count; i++)
         {
             if (_searchItems[i].Hit.PageIndex < start) continue;
             SelectSearchResult(i);
+            // At the top, with the results after it below, rather than at the bottom as the last one listed so far.
+            SearchResultList.ScrollIntoView(_searchItems[i], ScrollIntoViewAlignment.Leading);
+            _searchResultAtTop = true;
             break;
         }
     }
@@ -1455,6 +1466,7 @@ public sealed partial class MainWindow : Window
         _searchDebounce.Stop();
         _searchItems.Clear();
         _searchIndex = -1;
+        _searchResultAtTop = false;
         _searchQuery = "";
         Viewer.ClearSearch();
         if (clearText) SearchBox.Text = "";
@@ -1471,7 +1483,10 @@ public sealed partial class MainWindow : Window
     private void SelectSearchResult(int index)
     {
         if (index < 0 || index >= _searchItems.Count) return;
+        _searchResultAtTop = false;
+        if (_searchIndex >= 0 && _searchIndex < _searchItems.Count) _searchItems[_searchIndex].IsCurrent = false;
         _searchIndex = index;
+        _searchItems[index].IsCurrent = true;
         SearchResultList.SelectedIndex = index;
         SearchResultList.ScrollIntoView(_searchItems[index]);
         Viewer.ShowSearchHit(_searchItems[index].Hit);
