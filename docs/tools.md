@@ -23,6 +23,8 @@ tools\dev.ps1 -Unregister             # remove this checkout's registration (-Al
 
 Each checkout is registered under its own name, "Folio Dev (*folder*)", so builds from several worktrees can be installed at once: right-click a PDF in File Explorer, then **Open with** to pick one. Each build runs as its own instance, so opening a file with one never lands in another's window; About shows the checkout and commit a build came from. Registration is per user and needs no admin rights. Registrations of deleted checkouts are cleaned up on the next run. Builds share settings and recent files with an installed Folio.
 
+The script also builds the File Explorer thumbnail handler (with Native AOT, even for Debug) and registers it for the file type of every registered build. As with the Store build, Explorer only uses it while one of them is the default PDF app, so add `-SetDefault` to see thumbnails. The handler's COM class is shared by every checkout, so thumbnails come from whichever build was registered last. Explorer keeps showing thumbnails it already cached; clear them in Disk Cleanup (Thumbnails) to see a change. The script closes the COM surrogate holding the handler before building, as it locks the files.
+
 If PowerShell refuses to run scripts, use `pwsh tools\dev.ps1` (PowerShell 7) or `powershell -ExecutionPolicy Bypass -File tools\dev.ps1`.
 
 ## Benchmark

@@ -29,7 +29,7 @@ To try a build as your PDF app, measure performance or rebuild the icon, see [To
 | `src/Folio/Services` | Persisted state, the Windows print dialog, single-instance handoff, link and attachment policy |
 | `src/Folio/Package.appxmanifest`, `Assets/Package` | MSIX manifest and logos |
 | `src/Folio/Program.cs` | Entry point; forwards files to a running instance |
-| `src/Folio.Thumbnails` | File Explorer thumbnail handler (Native AOT COM DLL, MSIX build only) |
+| `src/Folio.Thumbnails` | File Explorer thumbnail handler (Native AOT COM DLL, MSIX and dev builds only) |
 | `tests/Folio.Tests` | xUnit tests |
 | `tools` | Developer tools: build-and-try script, benchmark, icon build ([Tools](tools.md)) |
 | `LICENSE`, `licenses/`, `THIRD-PARTY-NOTICES.md` | License texts, copied into the build output |
