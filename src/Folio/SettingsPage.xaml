@@ -83,6 +83,39 @@
                     Toggled="OnCornersToggled" />
             </controls:SettingsCard>
 
+            <!--  Search  -->
+            <TextBlock
+                AutomationProperties.HeadingLevel="Level2"
+                Style="{StaticResource SettingsSectionHeaderStyle}"
+                Text="Search" />
+            <controls:SettingsCard Description="Searching example also finds exam-ple split across two lines." Header="Find words hyphenated across lines">
+                <controls:SettingsCard.HeaderIcon>
+                    <FontIcon Glyph="&#xE751;" />
+                </controls:SettingsCard.HeaderIcon>
+                <ToggleSwitch
+                    x:Name="HyphenatedToggle"
+                    AutomationProperties.Name="Find words hyphenated across lines"
+                    Toggled="OnHyphenatedToggled" />
+            </controls:SettingsCard>
+            <controls:SettingsCard Description="Straight and curly quotes find each other." Header="Match curly quotes">
+                <controls:SettingsCard.HeaderIcon>
+                    <FontIcon Glyph="&#xE9B1;" />
+                </controls:SettingsCard.HeaderIcon>
+                <ToggleSwitch
+                    x:Name="QuotesToggle"
+                    AutomationProperties.Name="Match curly quotes"
+                    Toggled="OnQuotesToggled" />
+            </controls:SettingsCard>
+            <controls:SettingsCard Description="Hyphens, dashes and minus signs find each other." Header="Match all dashes">
+                <controls:SettingsCard.HeaderIcon>
+                    <FontIcon Glyph="&#xE8C1;" />
+                </controls:SettingsCard.HeaderIcon>
+                <ToggleSwitch
+                    x:Name="DashesToggle"
+                    AutomationProperties.Name="Match all dashes"
+                    Toggled="OnDashesToggled" />
+            </controls:SettingsCard>
+
             <!--  History  -->
             <TextBlock
                 AutomationProperties.HeadingLevel="Level2"

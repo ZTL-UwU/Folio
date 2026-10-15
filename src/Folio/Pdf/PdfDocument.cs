@@ -788,7 +788,7 @@ public sealed unsafe partial class PdfDocument : IDisposable
         }
     }
 
-    private static char SearchChar(uint cp) => cp <= 0xFFFF ? (char)cp : '�';
+    private static char SearchChar(uint cp) => cp <= 0xFFFF ? (char)cp : '\uFFFD';
 
     // ---------------------------------------------------------------- outline, attachments, metadata
 

@@ -40,6 +40,12 @@ public sealed class Preferences
     public bool RoundedPageCorners { get; set; } = true;
     /// <summary>Keep a list of opened documents, with the page each was left on, for the start page.</summary>
     public bool RememberRecent { get; set; } = true;
+    /// <summary>Search matches straight and curly quotes to each other, see <see cref="Folio.Pdf.SearchOptions.AnyQuote"/>.</summary>
+    public bool SearchAnyQuote { get; set; } = true;
+    /// <summary>Search matches hyphens, dashes and the minus sign to each other, see <see cref="Folio.Pdf.SearchOptions.AnyDash"/>.</summary>
+    public bool SearchAnyDash { get; set; } = true;
+    /// <summary>Search finds words hyphenated at the end of a line, see <see cref="Folio.Pdf.SearchOptions.JoinHyphenated"/>.</summary>
+    public bool SearchJoinHyphenated { get; set; } = true;
     public bool Continuous { get; set; } = true;
     public bool Dual { get; set; }
     public bool OddPagesLeft { get; set; }

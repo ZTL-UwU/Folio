@@ -58,6 +58,8 @@ public sealed partial class MainWindow : Window
     private DateTime _ignoreWatcherUntil;
     private int _searchIndex = -1;
     private string _searchQuery = "";
+    /// <summary>The options <see cref="_searchQuery"/> was searched with.</summary>
+    private SearchOptions _searchOptions;
     private bool _syncingThumbnails;
     private bool _sidebarOpen;
     private bool _fullscreen;
@@ -1322,7 +1324,7 @@ public sealed partial class MainWindow : Window
         SearchProgress.Maximum = document.PageCount;
         SearchProgress.Value = 0;
         SearchStatus.Text = "Searching…";
-        bool matchCase = MatchCaseToggle.IsChecked == true, wholeWords = WholeWordToggle.IsChecked == true;
+        var options = _searchOptions = CurrentSearchOptions();
         int start = Viewer.CurrentPage;
         // From the current page to the end, then from the start, so the first result selected is the next one
         // from where the reader is. The list stays in document order: results from before the current page go
@@ -1336,7 +1338,7 @@ public sealed partial class MainWindow : Window
                 int i = (start + n) % document.PageCount;
                 string text = await document.GetSearchTextAsync(i, cts.Token);
                 if (cts.IsCancellationRequested) return;
-                var hits = TextSearch.Find(text, i, _searchQuery, matchCase, wholeWords);
+                var hits = TextSearch.Find(text, i, _searchQuery, options);
                 if (hits.Count > 0)
                 {
                     string label = document.GetPageLabel(i);
@@ -1366,6 +1368,14 @@ public sealed partial class MainWindow : Window
         {
             if (_searchCts == cts) SearchProgress.Visibility = Visibility.Collapsed;
         }
+    }
+
+    private SearchOptions CurrentSearchOptions()
+    {
+        var prefs = AppState.Preferences;
+        return (MatchCaseToggle.IsChecked == true ? SearchOptions.MatchCase : 0) | (WholeWordToggle.IsChecked == true ? SearchOptions.WholeWords : 0)
+            | (prefs.SearchAnyQuote ? SearchOptions.AnyQuote : 0) | (prefs.SearchAnyDash ? SearchOptions.AnyDash : 0)
+            | (prefs.SearchJoinHyphenated ? SearchOptions.JoinHyphenated : 0);
     }
 
     private const double SearchSidebarWidth = 280;
@@ -1638,6 +1648,8 @@ public sealed partial class MainWindow : Window
         ShowCurrentView();
         UpdateChrome();
         if (_document is not null) Viewer.Focus(FocusState.Programmatic);
+        // Settings has options for how search matches.
+        if (_searchQuery.Length > 0 && CurrentSearchOptions() != _searchOptions) StartSearch(_searchQuery);
         if (_reloadAfterSettings)
         {
             _reloadAfterSettings = false;

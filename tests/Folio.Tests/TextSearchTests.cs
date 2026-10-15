@@ -4,8 +4,10 @@ namespace Folio.Tests;
 
 public sealed class TextSearchTests
 {
-    private static List<SearchHit> Find(string text, string query, bool matchCase = false, bool wholeWords = false)
-        => TextSearch.Find(text, 0, query, matchCase, wholeWords);
+    private const SearchOptions Defaults = SearchOptions.AnyQuote | SearchOptions.AnyDash | SearchOptions.JoinHyphenated;
+
+    private static List<SearchHit> Find(string text, string query, bool matchCase = false, bool wholeWords = false, SearchOptions options = Defaults)
+        => TextSearch.Find(text, 0, query, options | (matchCase ? SearchOptions.MatchCase : 0) | (wholeWords ? SearchOptions.WholeWords : 0));
 
     private static (int Start, int End)[] Ranges(List<SearchHit> hits) => [.. hits.Select(h => (h.CharIndex, h.CharIndex + h.Length))];
 
@@ -36,30 +38,42 @@ public sealed class TextSearchTests
         var hit = Assert.Single(Find("an exam\u0002ple of", "example"));
         Assert.Equal((3, 11), (hit.CharIndex, hit.CharIndex + hit.Length));
         Assert.Equal("example", hit.Match);
-        Assert.Single(Find("docu￾\r\nment", "document"));
+        Assert.Single(Find("docu\uFFFE\r\nment", "document"));
     }
 
     [Fact]
-    public void CurlyQuotesAndPlainOnesMatchEachOther()
+    public void WordsHyphenatedAcrossLines_MatchTheHyphen_WhenNotJoined()
     {
-        Assert.Single(Find("I don’t know", "don't"));
-        Assert.Single(Find("I don't know", "don’t"));
-        Assert.Single(Find("a “quoted” word", "\"quoted\""));
+        const SearchOptions notJoined = SearchOptions.AnyQuote | SearchOptions.AnyDash;
+        Assert.Empty(Find("an exam\u0002ple of", "example", options: notJoined));
+        var hit = Assert.Single(Find("an exam\u0002ple of", "exam-", options: notJoined));
+        Assert.Equal((3, 8), (hit.CharIndex, hit.CharIndex + hit.Length));
+        Assert.Equal("exam-", hit.Match);
     }
 
     [Fact]
-    public void DashesMatchEachOther()
+    public void CurlyQuotesAndPlainOnesMatchEachOther_UnlessTurnedOff()
     {
-        Assert.Single(Find("from 1990–2000", "1990-2000"));
-        Assert.Single(Find("x − y", "x - y"));
-        Assert.Single(Find("well-known", "well—known"));
+        Assert.Single(Find("I don\u2019t know", "don't"));
+        Assert.Single(Find("I don't know", "don\u2019t"));
+        Assert.Single(Find("a \u201Cquoted\u201D word", "\"quoted\""));
+        Assert.Empty(Find("I don\u2019t know", "don't", options: SearchOptions.AnyDash));
+    }
+
+    [Fact]
+    public void DashesMatchEachOther_UnlessTurnedOff()
+    {
+        Assert.Single(Find("from 1990\u20132000", "1990-2000"));
+        Assert.Single(Find("x \u2212 y", "x - y"));
+        Assert.Single(Find("well-known", "well\u2014known"));
+        Assert.Empty(Find("from 1990\u20132000", "1990-2000", options: SearchOptions.AnyQuote));
     }
 
     [Fact]
     public void AccentsCount()
     {
-        Assert.Empty(Find("café", "cafe"));
-        Assert.Single(Find("café", "CAFÉ"));
+        Assert.Empty(Find("caf\u00E9", "cafe"));
+        Assert.Single(Find("caf\u00E9", "CAF\u00C9"));
     }
 
     [Fact]

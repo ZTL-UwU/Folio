@@ -3,7 +3,7 @@
 - **Start page**: recent documents as thumbnail cards, with a search box (Ctrl+F) that filters them by name or path; drag and drop PDFs onto the window.
 - **Viewer**: continuous or single-page, dual pages (optionally odd on the left), fit page / fit width / custom zoom, Ctrl+wheel and pinch zoom, rotation, night mode, full screen, presentation mode.
 - **Sidebar**: thumbnails, outline, annotations, attachments.
-- **Search**: results with snippets in the sidebar, starting from the current page; match case, whole words; F3 / Shift+F3. Finds words hyphenated across lines, and plain quotes and hyphens match curly quotes and dashes. Pages are read once, starting when search opens, so searching again is instant.
+- **Search**: results with snippets in the sidebar, starting from the current page; match case, whole words; F3 / Shift+F3. Finds words hyphenated across lines, and plain quotes and hyphens match curly quotes and dashes (each can be turned off in Settings). Pages are read once, starting when search opens, so searching again is instant.
 - **Text**: select, copy, double-click a word; internal and web links.
 - **Annotations**: five highlight colors and sticky notes; edit, delete, and save to a copy of the PDF (Ctrl+S) as an incremental update, leaving the original bytes (and signatures) intact.
 - **Printing** from its own dialog with a live preview: page ranges, odd or even pages, copies, several pages per sheet, scaling, paper size, color, two-sided, and the printer's own settings. Pages go to the printer as vector output, so text prints sharp; Ctrl+Shift+P uses the Windows print dialog instead.

@@ -237,9 +237,9 @@ public sealed class PdfDocumentTests : IDisposable
         var page = await document.GetPageTextAsync(0);
         Assert.Equal(page.Count, text.Length);
 
-        var hyphenated = Assert.Single(TextSearch.Find(text, 0, "example", false, false));
+        var hyphenated = Assert.Single(TextSearch.Find(text, 0, "example", SearchOptions.JoinHyphenated));
         Assert.Equal("example", hyphenated.Match);
-        var acrossLines = Assert.Single(TextSearch.Find(text, 0, "search engine", false, false));
+        var acrossLines = Assert.Single(TextSearch.Find(text, 0, "search engine", SearchOptions.None));
         Assert.Equal("search engine", acrossLines.Match);
         Assert.NotEmpty(page.Layout.SourceRangeRects(acrossLines.CharIndex, acrossLines.CharIndex + acrossLines.Length));
         Assert.Same(text, await document.GetSearchTextAsync(0, CancellationToken.None));
