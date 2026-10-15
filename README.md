@@ -14,7 +14,6 @@ dotnet build src/Folio/Folio.csproj -c Release
 
 <p align="center">
   <img alt="Time to first page and memory use of Folio, Microsoft Edge, Adobe Acrobat and SumatraPDF, and File Explorer thumbnail time of Folio and PowerToys" src="./.github/assets/benchmark.png" />
-  
 </p>
 
 Measured with the [benchmark tool](docs/tools.md#benchmark). It's not a rigorous benchmark: an app can't be asked when its first page is ready, so the tool watches the screen for it and the times are only approximate. Take the numbers with a grain of salt. They reflect the overall experience more than exact speed.
