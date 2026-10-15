@@ -1668,7 +1668,7 @@ public sealed partial class DocumentView : UserControl
         else if (delta > 0 && atTop && _currentPage > 0)
         {
             PreviousPage();
-            ScrollTo(null, _scroller.ScrollableHeight, null, true);
+            ScrollTo(null, BottomOffset(), null, true);
         }
     }
 
@@ -1690,9 +1690,15 @@ public sealed partial class DocumentView : UserControl
 
     private void ScrollBy(double dx, double dy)
     {
+        // Both axes, so a scroll still under way on the other one keeps its target instead of
+        // stopping where it has got to.
         var (x, y) = ScrollTarget();
-        ScrollTo(dx == 0 ? null : Math.Clamp(x + dx, 0, _scroller.ScrollableWidth), dy == 0 ? null : Math.Clamp(y + dy, 0, _scroller.ScrollableHeight), null, false);
+        ScrollTo(Math.Clamp(x + dx, 0, _scroller.ScrollableWidth), Math.Clamp(y + dy, 0, _scroller.ScrollableHeight), null, false);
     }
+
+    /// <summary>The offset that shows the bottom of the content, at the zoom it's headed to.</summary>
+    /// <remarks>Turning a page can change the fit zoom, which the scroller's extent doesn't reflect yet.</remarks>
+    private double BottomOffset() => Math.Max(0, _host.Height * Zoom - _scroller.ViewportHeight);
 
     /// <summary>Scrolls a line; in single page mode, scrolling past the edge of the page turns it, as the wheel does.</summary>
     private void ScrollLine(int direction)
@@ -1707,7 +1713,7 @@ public sealed partial class DocumentView : UserControl
         else if (direction < 0 && y <= 1 && _currentPage > 0)
         {
             PreviousPage();
-            ScrollTo(null, _scroller.ScrollableHeight, null, true);
+            ScrollTo(null, BottomOffset(), null, true);
         }
         else ScrollBy(0, direction * LineStep);
     }
@@ -1868,7 +1874,7 @@ public sealed partial class DocumentView : UserControl
                 e.Handled = true;
                 break;
             case VirtualKey.Home or VirtualKey.End when !alt:
-                ScrollTo(null, e.Key == VirtualKey.Home ? 0 : _scroller.ScrollableHeight, null, true);
+                ScrollTo(null, e.Key == VirtualKey.Home ? 0 : BottomOffset(), null, true);
                 e.Handled = true;
                 break;
         }
