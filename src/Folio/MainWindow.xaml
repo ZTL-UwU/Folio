@@ -848,8 +848,10 @@
                         <ListView.ItemContainerTransitions>
                             <TransitionCollection />
                         </ListView.ItemContainerTransitions>
-                        <!--  The selected result is marked by the template's own indicator: a list item's animates in, and does so
-                              again from the item's top whenever the list is reset as results are added  -->
+                        <!--
+                            The selected result is marked by the template's own indicator: a list item's animates in, and does so
+                            again from the item's top whenever the list is reset as results are added
+                        -->
                         <ListView.Resources>
                             <x:Boolean x:Key="ListViewItemSelectionIndicatorVisualEnabled">False</x:Boolean>
                         </ListView.Resources>
