@@ -87,6 +87,18 @@ public sealed class TextSearchTests
     }
 
     [Fact]
+    public void WholeWords_EndAtDashesAndCurlyApostrophes_AsDoubleClickDoes()
+    {
+        // Folding makes them a hyphen and a straight apostrophe, which double-click counts as part of a word.
+        Assert.Equal([(0, 4)], Ranges(Find("1990\u20132000", "1990", wholeWords: true)));
+        Assert.Equal([(0, 4)], Ranges(Find("John\u2019s book", "John", wholeWords: true)));
+        Assert.Empty(Find("John's book", "John", wholeWords: true));
+        Assert.Empty(Find("well-known", "well", wholeWords: true));
+        // A query that starts or ends with a dash isn't held to a word boundary there.
+        Assert.Single(Find("1990\u20132000", "\u20132000", wholeWords: true));
+    }
+
+    [Fact]
     public void BlankQuery_FindsNothing()
     {
         Assert.Empty(Find("some text", "   "));

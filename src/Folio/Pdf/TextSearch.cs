@@ -29,18 +29,24 @@ internal static class TextSearch
     public static List<SearchHit> Find(string text, int pageIndex, string query, SearchOptions options)
     {
         var hits = new List<SearchHit>();
-        string pattern = Fold(query, options).Text.Trim();
-        if (pattern.Length == 0) return hits;
+        var (foldedQuery, queryMap) = Fold(query, options);
+        int lead = 0, trail = foldedQuery.Length;
+        while (lead < trail && foldedQuery[lead] == ' ') lead++;
+        while (trail > lead && foldedQuery[trail - 1] == ' ') trail--;
+        if (lead == trail) return hits;
+        string pattern = foldedQuery[lead..trail];
         var (folded, map) = Fold(text, options);
         bool wholeWords = options.HasFlag(SearchOptions.WholeWords), joined = options.HasFlag(SearchOptions.JoinHyphenated);
-        bool checkStart = wholeWords && PageText.IsWordCodePoint(pattern[0]);
-        bool checkEnd = wholeWords && PageText.IsWordCodePoint(pattern[^1]);
+        // Word boundaries are where double-click selection finds them, in the characters as they were: folding makes
+        // an en dash a hyphen and a curly apostrophe a straight one, which count as part of a word.
+        bool checkStart = wholeWords && PageText.IsWordCodePoint(query[queryMap[lead]]);
+        bool checkEnd = wholeWords && PageText.IsWordCodePoint(query[queryMap[trail - 1]]);
         int at = 0;
         while (hits.Count < MaxHitsPerPage && (at = folded.IndexOf(pattern, at, StringComparison.Ordinal)) >= 0)
         {
             int after = at + pattern.Length;
-            if (checkStart && at > 0 && PageText.IsWordCodePoint(folded[at - 1]) ||
-                checkEnd && after < folded.Length && PageText.IsWordCodePoint(folded[after]))
+            if (checkStart && at > 0 && PageText.IsWordCodePoint(text[map[at - 1]]) ||
+                checkEnd && after < folded.Length && PageText.IsWordCodePoint(text[map[after]]))
             {
                 at++;
                 continue;
