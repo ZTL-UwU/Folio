@@ -27,15 +27,15 @@ public sealed partial class PdfDocument
     }
 
     /// <summary>
-    /// Reads every page's search text ahead of a search, from <paramref name="start"/> round to it as
-    /// searches go, while the worker has nothing else to do.
+    /// Reads every page's search text ahead of a search, in the order searches go, while the worker has
+    /// nothing else to do.
     /// </summary>
-    public Task ReadSearchTextAsync(int start, CancellationToken token)
+    public Task ReadSearchTextAsync(CancellationToken token)
     {
         return Task.Run(async () =>
         {
-            for (int n = 0; n < PageCount; n++)
-                await GetSearchTextAsync((start + n) % PageCount, token, WorkPriority.Idle).ConfigureAwait(false);
+            for (int i = 0; i < PageCount; i++)
+                await GetSearchTextAsync(i, token, WorkPriority.Idle).ConfigureAwait(false);
         }, token);
     }
 }

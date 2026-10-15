@@ -145,15 +145,13 @@ public sealed partial class SearchItemCollection : ObservableCollection<SearchIt
     private static readonly PropertyChangedEventArgs IndexerChanged = new("Item[]");
     private static readonly NotifyCollectionChangedEventArgs Reset = new(NotifyCollectionChangedAction.Reset);
 
-    /// <summary>Inserts <paramref name="insert"/> at <paramref name="index"/> and appends <paramref name="append"/>, as one change.</summary>
-    public void AddBatch(int index, List<SearchItem> insert, List<SearchItem> append)
+    /// <summary>Appends <paramref name="items"/> as one change.</summary>
+    public void AddRange(List<SearchItem> items)
     {
-        if (insert.Count + append.Count == 0) return;
+        if (items.Count == 0) return;
         CheckReentrancy();
         // Collection<T> keeps its items in a List<T> unless given another list.
-        var items = (List<SearchItem>)Items;
-        items.InsertRange(index, insert);
-        items.AddRange(append);
+        ((List<SearchItem>)Items).AddRange(items);
         OnPropertyChanged(CountChanged);
         OnPropertyChanged(IndexerChanged);
         OnCollectionChanged(Reset);

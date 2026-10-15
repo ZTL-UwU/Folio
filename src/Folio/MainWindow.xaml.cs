@@ -1327,38 +1327,32 @@ public sealed partial class MainWindow : Window
         SearchStatus.Text = "Searching…";
         var options = _searchOptions = CurrentSearchOptions();
         int start = Viewer.CurrentPage;
-        // From the current page to the end, then from the start, so the first result selected is the next one
-        // from where the reader is. The list stays in document order: results from before the current page go
-        // in ahead of the others, and wrapped counts those listed. Results wait in before and after to be listed
-        // in batches.
-        int wrapped = 0, found = 0;
-        var before = new List<SearchItem>();
-        var after = new List<SearchItem>();
+        // Results wait in pending to be listed in batches.
+        int found = 0;
+        var pending = new List<SearchItem>();
         long yielded = Environment.TickCount64, listed = yielded;
         try
         {
-            for (int n = 0; n < document.PageCount; n++)
+            for (int i = 0; i < document.PageCount; i++)
             {
-                int i = (start + n) % document.PageCount;
                 string text = await document.GetSearchTextAsync(i, cts.Token);
                 if (cts.IsCancellationRequested) return;
                 var hits = TextSearch.Find(text, i, _searchQuery, options);
                 if (hits.Count > 0)
                 {
                     string label = document.GetPageLabel(i);
-                    var batch = i < start ? before : after;
-                    foreach (var hit in hits) batch.Add(new SearchItem(hit, label));
+                    foreach (var hit in hits) pending.Add(new SearchItem(hit, label));
                     found += hits.Count;
                     Viewer.AddSearchResults(hits);
                 }
-                // The first result is listed and shown at once, the rest every so often.
-                bool listing = _searchIndex < 0 && found > 0 || Environment.TickCount64 - listed > 100;
+                // The first result from the current page on is listed and shown at once, the rest every so often.
+                bool listing = _searchIndex < 0 && i >= start && hits.Count > 0 || Environment.TickCount64 - listed > 100;
                 if (listing)
                 {
-                    ListSearchResults(before, after, ref wrapped);
+                    ListSearchResults(pending, start);
                     listed = Environment.TickCount64;
                 }
-                SearchProgress.Value = n + 1;
+                SearchProgress.Value = i + 1;
                 SearchStatus.Text = ResultText(found) + "…";
                 // Pages read by an earlier search come back at once; let the window draw and take input now and then,
                 // and after updating the list, which takes it a while.
@@ -1369,7 +1363,9 @@ public sealed partial class MainWindow : Window
                     yielded = Environment.TickCount64;
                 }
             }
-            ListSearchResults(before, after, ref wrapped);
+            ListSearchResults(pending, start);
+            // Nothing from the current page on: wrap round to the first.
+            if (_searchIndex < 0 && _searchItems.Count > 0) SelectSearchResult(0);
             SearchStatus.Text = found == 0 ? "No results found" : ResultText(found);
         }
         catch (Exception ex) when (ex is OperationCanceledException or ObjectDisposedException)
@@ -1382,28 +1378,27 @@ public sealed partial class MainWindow : Window
     }
 
     /// <summary>
-    /// Lists waiting results: <paramref name="before"/>, from pages before the one the search started on, after
-    /// those from such pages already listed (<paramref name="wrapped"/> of them), and <paramref name="after"/> at the end.
+    /// Lists waiting results, and if none is selected yet, selects the first from page <paramref name="start"/>
+    /// on: the next one from where the reader is.
     /// </summary>
-    private void ListSearchResults(List<SearchItem> before, List<SearchItem> after, ref int wrapped)
+    private void ListSearchResults(List<SearchItem> pending, int start)
     {
-        if (before.Count + after.Count == 0) return;
-        // Pages from the start one on are searched first, so if nothing is selected yet, the first result is after[0] if there is one.
-        int first = after.Count > 0 ? _searchItems.Count + before.Count : wrapped;
-        if (_searchIndex >= wrapped) _searchIndex += before.Count;
-        // A reset list keeps its scroll offset, so results inserted above those shown would push them down: keep
-        // the first one shown that's at or after the insertion in place.
-        int anchor = -1;
-        if (before.Count > 0 && SearchResultList.ItemsPanelRoot is ItemsStackPanel { FirstVisibleIndex: >= 0 } panel && wrapped <= panel.LastVisibleIndex)
-            anchor = Math.Max(panel.FirstVisibleIndex, wrapped) + before.Count;
-        _searchItems.AddBatch(wrapped, before, after);
-        if (anchor >= 0) SearchResultList.ScrollIntoView(_searchItems[anchor], ScrollIntoViewAlignment.Leading);
-        wrapped += before.Count;
-        before.Clear();
-        after.Clear();
-        // It forgets its selection, though.
-        if (_searchIndex < 0) SelectSearchResult(first);
-        else SearchResultList.SelectedIndex = _searchIndex;
+        if (pending.Count == 0) return;
+        int first = _searchItems.Count;
+        _searchItems.AddRange(pending);
+        pending.Clear();
+        if (_searchIndex >= 0)
+        {
+            // The list forgets its selection when reset.
+            SearchResultList.SelectedIndex = _searchIndex;
+            return;
+        }
+        for (int i = first; i < _searchItems.Count; i++)
+        {
+            if (_searchItems[i].Hit.PageIndex < start) continue;
+            SelectSearchResult(i);
+            break;
+        }
     }
 
     /// <summary>
@@ -1451,7 +1446,7 @@ public sealed partial class MainWindow : Window
         var cts = _searchTextCts = new CancellationTokenSource();
         try
         {
-            await _document.ReadSearchTextAsync(Viewer.CurrentPage, cts.Token);
+            await _document.ReadSearchTextAsync(cts.Token);
         }
         catch (Exception ex) when (ex is OperationCanceledException or ObjectDisposedException)
         {

@@ -258,7 +258,7 @@ public sealed class PdfDocumentTests : IDisposable
         Assert.True(shown.IsCompletedSuccessfully);
         Assert.Equal(page.Count, shown.Result.Length);
 
-        await document.ReadSearchTextAsync(2, CancellationToken.None);
+        await document.ReadSearchTextAsync(CancellationToken.None);
         for (int i = 0; i < 3; i++) Assert.True(document.GetSearchTextAsync(i, CancellationToken.None).IsCompletedSuccessfully);
         Assert.Equal(3L * page.Count, document.EstimatedTextLength);
     }
