@@ -146,12 +146,13 @@ public sealed partial class DocumentView : UserControl
         _host.PointerExited += (_, _) => { if (!_pointerDown && !_middleScroll) { SetStatus(null); SetCursor(InputSystemCursorShape.Arrow); } };
         _host.RightTapped += OnRightTapped;
         AddHandler(PreviewKeyDownEvent, new KeyEventHandler(OnPreviewKeyDown), true);
+        AddHandler(KeyUpEvent, new KeyEventHandler(OnKeyUp), true);
         AddHandler(PointerWheelChangedEvent, new PointerEventHandler(OnPointerWheelChanged), true);
         AddHandler(PointerPressedEvent, new PointerEventHandler(OnMiddleScrollPointerPressed), true);
         AddHandler(PointerMovedEvent, new PointerEventHandler(OnMiddleScrollPointerMoved), true);
         AddHandler(PointerReleasedEvent, new PointerEventHandler(OnMiddleScrollPointerReleased), true);
         PointerCaptureLost += (_, _) => { if (_middleScrollHeld) StopMiddleScroll(); };
-        LostFocus += (_, _) => { StopMiddleScroll(); StopAutoScroll(); };
+        LostFocus += (_, _) => { StopMiddleScroll(); StopAutoScroll(); StopKeyScroll(); };
         // Neither XamlRoot nor the timer is a XAML element, so the garbage collector can't trace a cycle
         // through their handlers. Detach so they can't keep the view, and the window it was in, alive after closing.
         Loaded += (_, _) =>
@@ -165,6 +166,7 @@ public sealed partial class DocumentView : UserControl
         {
             StopMiddleScroll();
             StopAutoScroll();
+            StopKeyScroll();
             Detach();
         };
     }
@@ -216,6 +218,7 @@ public sealed partial class DocumentView : UserControl
     {
         StopMiddleScroll();
         StopAutoScroll();
+        StopKeyScroll();
         _noteEdits.Clear();
         foreach (var view in _views.Values) view.Release();
         _views.Clear();
@@ -438,6 +441,7 @@ public sealed partial class DocumentView : UserControl
         if (_presentation == value || _document is null) return;
         StopMiddleScroll();
         StopAutoScroll();
+        StopKeyScroll();
         int page = _currentPage;
         if (value)
         {
@@ -693,6 +697,7 @@ public sealed partial class DocumentView : UserControl
     {
         StopMiddleScroll();
         StopAutoScroll();
+        StopKeyScroll();
         if (_zoomMode != ZoomMode.Custom) ApplyZoomMode();
         UpdateRealization(true);
     }
@@ -739,10 +744,11 @@ public sealed partial class DocumentView : UserControl
         }
         if (Math.Abs(zoom - _lastZoom) > 0.0001)
         {
-            // Both track scroll offsets in pixels of the old zoom. A selection drag goes on; its next
+            // All three track scroll offsets in pixels of the old zoom. A selection drag goes on; its next
             // move starts auto-scrolling again from the new offsets.
             StopMiddleScroll();
             StopAutoScroll();
+            StopKeyScroll();
             _lastZoom = zoom;
             ZoomChanged?.Invoke(this, EventArgs.Empty);
         }
@@ -1649,8 +1655,9 @@ public sealed partial class DocumentView : UserControl
     private void OnPointerWheelChanged(object sender, PointerRoutedEventArgs e)
     {
         StopMiddleScroll();
-        // Otherwise its next frame would scroll back to the offset it tracks.
+        // Otherwise their next frame would scroll back to the offset they track.
         StopAutoScroll();
+        StopKeyScroll();
         if (_document is null || (_continuous && !_presentation)) return;
         if ((e.KeyModifiers & VirtualKeyModifiers.Control) != 0) return;
         // Single page mode: flip pages when scrolling past the edges.
@@ -1705,10 +1712,93 @@ public sealed partial class DocumentView : UserControl
         else ScrollBy(0, direction * LineStep);
     }
 
+    // Holding an arrow key scrolls at a steady speed, like Firefox, rather than a line per key
+    // repeat. The first press still scrolls a line.
+    private const double KeyScrollSpeed = 1800;
+    private const double KeyScrollRampSeconds = 0.15;
+    private VirtualKey? _keyScrollKey;
+    private int _keyScrollDX, _keyScrollDY;
+    private double _keyScrollX, _keyScrollY;
+    private long _keyScrollStart, _keyScrollTime;
+
+    /// <summary>Whether the view can scroll further in a direction (-1, 0 or 1 on each axis).</summary>
+    private bool CanScroll(int dx, int dy)
+    {
+        var (x, y) = ScrollTarget();
+        return dx < 0 && x > 1 || dx > 0 && x < _scroller.ScrollableWidth - 1 || dy < 0 && y > 1 || dy > 0 && y < _scroller.ScrollableHeight - 1;
+    }
+
+    /// <summary>Scrolls for an arrow key; once the key repeats, scrolls continuously until it's released.</summary>
+    private void OnScrollKey(KeyRoutedEventArgs e, int dx, int dy)
+    {
+        // At an edge a repeat steps instead, which turns the page in single page mode.
+        if (!e.KeyStatus.WasKeyDown || !CanScroll(dx, dy))
+        {
+            StopKeyScroll();
+            if (dy != 0) ScrollLine(dy);
+            else ScrollBy(dx * LineStep, 0);
+            return;
+        }
+        if (_keyScrollKey == e.Key) return;
+        StopKeyScroll();
+        _keyScrollKey = e.Key;
+        (_keyScrollDX, _keyScrollDY) = (dx, dy);
+        // Carry on from wherever the first press's step has got to.
+        _keyScrollX = _scroller.HorizontalOffset;
+        _keyScrollY = _scroller.VerticalOffset;
+        _keyScrollStart = _keyScrollTime = System.Diagnostics.Stopwatch.GetTimestamp();
+        CompositionTarget.Rendering += OnKeyScrollFrame;
+    }
+
+    /// <summary>Ends scrolling with a held arrow key, if it's on.</summary>
+    public void StopKeyScroll()
+    {
+        if (_keyScrollKey is null) return;
+        _keyScrollKey = null;
+        CompositionTarget.Rendering -= OnKeyScrollFrame;
+    }
+
+    private void OnKeyScrollFrame(object? sender, object e)
+    {
+        // The key could have been released while another window had focus.
+        if (_keyScrollKey is not { } key || !IsKeyDown(key))
+        {
+            StopKeyScroll();
+            return;
+        }
+        long now = System.Diagnostics.Stopwatch.GetTimestamp();
+        double frequency = System.Diagnostics.Stopwatch.Frequency;
+        double seconds = Math.Min(0.1, (now - _keyScrollTime) / frequency);
+        _keyScrollTime = now;
+        // Ease in, as the first press's step eased out to a stop.
+        double speed = KeyScrollSpeed * Math.Min(1, (now - _keyScrollStart) / frequency / KeyScrollRampSeconds);
+        double x = Math.Clamp(_keyScrollX + _keyScrollDX * speed * seconds, 0, _scroller.ScrollableWidth);
+        double y = Math.Clamp(_keyScrollY + _keyScrollDY * speed * seconds, 0, _scroller.ScrollableHeight);
+        if (x != _keyScrollX || y != _keyScrollY)
+        {
+            // Offsets are tracked here, since the scroller's lag behind ChangeView.
+            _keyScrollX = x;
+            _keyScrollY = y;
+            ScrollTo(_keyScrollDX == 0 ? null : x, _keyScrollDY == 0 ? null : y, null, true);
+        }
+        bool atEdge = _keyScrollDX < 0 && x <= 0 || _keyScrollDX > 0 && x >= _scroller.ScrollableWidth
+            || _keyScrollDY < 0 && y <= 0 || _keyScrollDY > 0 && y >= _scroller.ScrollableHeight;
+        if (atEdge) StopKeyScroll();
+    }
+
+    private void OnKeyUp(object sender, KeyRoutedEventArgs e)
+    {
+        if (e.Key == _keyScrollKey) StopKeyScroll();
+    }
+
     private void OnPreviewKeyDown(object sender, KeyRoutedEventArgs e)
     {
         // Keys can scroll the view, which auto-scrolling would undo on its next frame.
-        if (e.Key is not (VirtualKey.Shift or VirtualKey.Control or VirtualKey.Menu or VirtualKey.LeftWindows or VirtualKey.RightWindows)) StopAutoScroll();
+        if (e.Key is not (VirtualKey.Shift or VirtualKey.Control or VirtualKey.Menu or VirtualKey.LeftWindows or VirtualKey.RightWindows))
+        {
+            StopAutoScroll();
+            if (e.Key != _keyScrollKey) StopKeyScroll();
+        }
         if (_middleScroll)
         {
             StopMiddleScroll();
@@ -1762,11 +1852,11 @@ public sealed partial class DocumentView : UserControl
                 e.Handled = true;
                 break;
             case VirtualKey.Down or VirtualKey.Up when plain:
-                ScrollLine(e.Key == VirtualKey.Down ? 1 : -1);
+                OnScrollKey(e, 0, e.Key == VirtualKey.Down ? 1 : -1);
                 e.Handled = true;
                 break;
             case VirtualKey.Right or VirtualKey.Left when plain:
-                ScrollBy(e.Key == VirtualKey.Right ? LineStep : -LineStep, 0);
+                OnScrollKey(e, e.Key == VirtualKey.Right ? 1 : -1, 0);
                 e.Handled = true;
                 break;
             case VirtualKey.Home when !alt && paged:
