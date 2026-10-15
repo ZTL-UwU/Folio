@@ -1,3 +1,5 @@
+using System.Collections.ObjectModel;
+using System.Collections.Specialized;
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
 using Folio.Controls;
@@ -131,4 +133,29 @@ public sealed class SearchItem(SearchHit hit, string pageLabel)
 {
     public SearchHit Hit { get; } = hit;
     public string Page { get; } = pageLabel;
+}
+
+/// <summary>
+/// Search results, added in batches: a ListView handles each change to a collection on its own, at about 12 µs
+/// each, so adding a search's results one by one took seconds. A batch goes in as one Reset.
+/// </summary>
+public sealed partial class SearchItemCollection : ObservableCollection<SearchItem>
+{
+    private static readonly PropertyChangedEventArgs CountChanged = new(nameof(Count));
+    private static readonly PropertyChangedEventArgs IndexerChanged = new("Item[]");
+    private static readonly NotifyCollectionChangedEventArgs Reset = new(NotifyCollectionChangedAction.Reset);
+
+    /// <summary>Inserts <paramref name="insert"/> at <paramref name="index"/> and appends <paramref name="append"/>, as one change.</summary>
+    public void AddBatch(int index, List<SearchItem> insert, List<SearchItem> append)
+    {
+        if (insert.Count + append.Count == 0) return;
+        CheckReentrancy();
+        // Collection<T> keeps its items in a List<T> unless given another list.
+        var items = (List<SearchItem>)Items;
+        items.InsertRange(index, insert);
+        items.AddRange(append);
+        OnPropertyChanged(CountChanged);
+        OnPropertyChanged(IndexerChanged);
+        OnCollectionChanged(Reset);
+    }
 }

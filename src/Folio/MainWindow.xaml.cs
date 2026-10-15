@@ -18,6 +18,7 @@ using Windows.ApplicationModel.DataTransfer;
 using Windows.Graphics;
 using Windows.Graphics.Imaging;
 using Windows.System;
+using DispatcherQueuePriority = Microsoft.UI.Dispatching.DispatcherQueuePriority;
 using DispatcherQueueTimer = Microsoft.UI.Dispatching.DispatcherQueueTimer;
 using ZoomMode = Folio.Services.ZoomMode;
 using COMException = System.Runtime.InteropServices.COMException;
@@ -34,7 +35,7 @@ public sealed partial class MainWindow : Window
     private readonly DispatcherQueueTimer _thumbnailSyncThrottle;
     private bool _thumbnailSyncPending;
     private readonly TaskCompletionSource _loaded = new();
-    private readonly ObservableCollection<SearchItem> _searchItems = [];
+    private readonly SearchItemCollection _searchItems = new();
     private readonly ObservableCollection<AnnotationItem> _annotationItems = [];
     private readonly Dictionary<int, PdfAnnotation[]> _annotations = [];
     private List<ThumbnailItem> _thumbnails = [];
@@ -1328,9 +1329,12 @@ public sealed partial class MainWindow : Window
         int start = Viewer.CurrentPage;
         // From the current page to the end, then from the start, so the first result selected is the next one
         // from where the reader is. The list stays in document order: results from before the current page go
-        // in ahead of the others, and wrapped counts them.
-        int wrapped = 0;
-        long yielded = Environment.TickCount64;
+        // in ahead of the others, and wrapped counts those listed. Results wait in before and after to be listed
+        // in batches.
+        int wrapped = 0, found = 0;
+        var before = new List<SearchItem>();
+        var after = new List<SearchItem>();
+        long yielded = Environment.TickCount64, listed = yielded;
         try
         {
             for (int n = 0; n < document.PageCount; n++)
@@ -1342,24 +1346,31 @@ public sealed partial class MainWindow : Window
                 if (hits.Count > 0)
                 {
                     string label = document.GetPageLabel(i);
-                    int first = i < start ? wrapped : _searchItems.Count;
-                    for (int h = 0; h < hits.Count; h++) _searchItems.Insert(first + h, new SearchItem(hits[h], label));
-                    if (i < start) wrapped += hits.Count;
-                    if (_searchIndex >= first) _searchIndex += hits.Count;
+                    var batch = i < start ? before : after;
+                    foreach (var hit in hits) batch.Add(new SearchItem(hit, label));
+                    found += hits.Count;
                     Viewer.AddSearchResults(hits);
-                    if (_searchIndex < 0) SelectSearchResult(first);
+                }
+                // The first result is listed and shown at once, the rest every so often.
+                bool listing = _searchIndex < 0 && found > 0 || Environment.TickCount64 - listed > 100;
+                if (listing)
+                {
+                    ListSearchResults(before, after, ref wrapped);
+                    listed = Environment.TickCount64;
                 }
                 SearchProgress.Value = n + 1;
-                SearchStatus.Text = ResultText(_searchItems.Count) + "…";
-                // Pages read by an earlier search come back at once; let the window draw and take input now and then.
-                if (Environment.TickCount64 - yielded > 30)
+                SearchStatus.Text = ResultText(found) + "…";
+                // Pages read by an earlier search come back at once; let the window draw and take input now and then,
+                // and after updating the list, which takes it a while.
+                if (listing || Environment.TickCount64 - yielded > 30)
                 {
-                    await Task.Yield();
+                    await YieldToWindowAsync();
                     if (cts.IsCancellationRequested) return;
                     yielded = Environment.TickCount64;
                 }
             }
-            SearchStatus.Text = _searchItems.Count == 0 ? "No results found" : ResultText(_searchItems.Count);
+            ListSearchResults(before, after, ref wrapped);
+            SearchStatus.Text = found == 0 ? "No results found" : ResultText(found);
         }
         catch (Exception ex) when (ex is OperationCanceledException or ObjectDisposedException)
         {
@@ -1368,6 +1379,42 @@ public sealed partial class MainWindow : Window
         {
             if (_searchCts == cts) SearchProgress.Visibility = Visibility.Collapsed;
         }
+    }
+
+    /// <summary>
+    /// Lists waiting results: <paramref name="before"/>, from pages before the one the search started on, after
+    /// those from such pages already listed (<paramref name="wrapped"/> of them), and <paramref name="after"/> at the end.
+    /// </summary>
+    private void ListSearchResults(List<SearchItem> before, List<SearchItem> after, ref int wrapped)
+    {
+        if (before.Count + after.Count == 0) return;
+        // Pages from the start one on are searched first, so if nothing is selected yet, the first result is after[0] if there is one.
+        int first = after.Count > 0 ? _searchItems.Count + before.Count : wrapped;
+        if (_searchIndex >= wrapped) _searchIndex += before.Count;
+        // A reset list keeps its scroll offset, so results inserted above those shown would push them down: keep
+        // the first one shown that's at or after the insertion in place.
+        int anchor = -1;
+        if (before.Count > 0 && SearchResultList.ItemsPanelRoot is ItemsStackPanel { FirstVisibleIndex: >= 0 } panel && wrapped <= panel.LastVisibleIndex)
+            anchor = Math.Max(panel.FirstVisibleIndex, wrapped) + before.Count;
+        _searchItems.AddBatch(wrapped, before, after);
+        if (anchor >= 0) SearchResultList.ScrollIntoView(_searchItems[anchor], ScrollIntoViewAlignment.Leading);
+        wrapped += before.Count;
+        before.Clear();
+        after.Clear();
+        // It forgets its selection, though.
+        if (_searchIndex < 0) SelectSearchResult(first);
+        else SearchResultList.SelectedIndex = _searchIndex;
+    }
+
+    /// <summary>
+    /// Lets the window take input and draw before carrying on. Task.Yield isn't enough: it queues the rest at normal
+    /// priority, ahead of input and rendering, so a loop that keeps yielding still freezes the window.
+    /// </summary>
+    private Task YieldToWindowAsync()
+    {
+        var done = new TaskCompletionSource();
+        if (!DispatcherQueue.TryEnqueue(DispatcherQueuePriority.Low, done.SetResult)) done.SetResult();
+        return done.Task;
     }
 
     private SearchOptions CurrentSearchOptions()
