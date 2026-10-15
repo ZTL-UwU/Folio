@@ -1283,7 +1283,8 @@ public sealed partial class MainWindow : Window
     private void OnSearchSubmitted(AutoSuggestBox sender, AutoSuggestBoxQuerySubmittedEventArgs args)
     {
         _searchDebounce.Stop();
-        if (args.QueryText == _searchQuery && _searchItems.Count > 0) MoveSearch(+1);
+        // Enter submits the query whether or not Shift is down, so Shift+Enter is told apart here.
+        if (args.QueryText == _searchQuery && _searchItems.Count > 0) MoveSearch(IsShiftDown() ? -1 : +1);
         else StartSearch(args.QueryText);
     }
 
@@ -1293,11 +1294,6 @@ public sealed partial class MainWindow : Window
         {
             CancelSearch(clearText: true);
             Viewer.Focus(FocusState.Programmatic);
-            e.Handled = true;
-        }
-        else if (e.Key == VirtualKey.Enter && IsShiftDown())
-        {
-            MoveSearch(-1);
             e.Handled = true;
         }
     }
@@ -1944,8 +1940,6 @@ public sealed partial class MainWindow : Window
         Add(VirtualKey.P, Ctrl, () => OnPrint(this, new RoutedEventArgs()), true);
         Add(VirtualKey.P, Ctrl | Shift, () => _ = PrintWithSystemDialogAsync(), true);
         Add(VirtualKey.F, Ctrl, FocusSearch, true);
-        Add(VirtualKey.F3, None, () => MoveSearch(+1), true);
-        Add(VirtualKey.F3, Shift, () => MoveSearch(-1), true);
         Add(VirtualKey.G, Ctrl, () => MoveSearch(+1), true);
         Add(VirtualKey.G, Ctrl | Shift, () => MoveSearch(-1), true);
         Add(VirtualKey.Add, Ctrl, Viewer.ZoomIn, true);
