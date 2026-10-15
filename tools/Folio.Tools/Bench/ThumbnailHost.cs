@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Globalization;
 using System.Runtime.InteropServices;
+using System.Text;
 using Windows.Graphics.Imaging;
 using Windows.Storage.Streams;
 
@@ -9,9 +10,10 @@ namespace Folio.Tools.Bench;
 
 /// <summary>
 /// One thumbnail: how long it took, and what it cost. <paramref name="Cold"/> if it was the first thumbnail of a host
-/// that had just started, which also loaded the handler.
+/// that had just started, which also loaded the handler. No stream calls or bytes read for an IExtractImage, which
+/// reads the file itself.
 /// </summary>
-internal sealed record ThumbnailRun(double? Ms, double CpuMs, int Processes, long StreamCalls, long BytesRead, int Width, int Height, bool Cold, string? Error);
+internal sealed record ThumbnailRun(double? Ms, double CpuMs, int Processes, long? StreamCalls, long? BytesRead, int Width, int Height, bool Cold, string? Error);
 
 /// <summary>
 /// A process of this tool (the hidden <c>thumbnail-host</c> command) that loads one handler and makes thumbnails with
@@ -19,7 +21,7 @@ internal sealed record ThumbnailRun(double? Ms, double CpuMs, int Processes, lon
 /// keeps asking, and is started again if a thumbnail times out.
 /// </summary>
 /// <remarks>
-/// For each thumbnail it's sent a line, <c>&lt;size&gt; &lt;marshaled stream, hex&gt; &lt;png path or -&gt;</c>, and
+/// For each thumbnail it's sent a line, <c>&lt;size&gt; &lt;marshaled stream, or for an IExtractImage the PDF's path, hex&gt; &lt;png path or -&gt;</c>, and
 /// answers <c>@ok &lt;ms&gt; &lt;width&gt; &lt;height&gt;</c> or <c>@error &lt;HRESULT&gt; &lt;ms&gt;</c>, then <c>@done</c>
 /// once it has saved the PNG.
 /// </remarks>
@@ -40,16 +42,16 @@ internal sealed class ThumbnailHost(Handler handler) : IDisposable
         Start();
         bool cold = _fresh;
         _fresh = false;
-        using var stream = new CountingFileStream(pdf);
-        string marshaled = Convert.ToHexString(Com.MarshalStream(stream));
+        using var stream = handler.ExtractImage ? null : new CountingFileStream(pdf);
+        string source = Convert.ToHexString(stream is null ? Encoding.UTF8.GetBytes(pdf) : Com.MarshalStream(stream));
         var (cpu, processes) = _job!.Totals();
-        _process!.StandardInput.WriteLine($"{size} {marshaled} {png ?? "-"}");
+        _process!.StandardInput.WriteLine($"{size} {source} {png ?? "-"}");
         string? reply = Reply(timeout);
         var (cpuAfter, processesAfter) = _job.Totals();
         if (reply is null)
         {
             Stop();
-            return new(null, 0, 0, stream.Calls, stream.BytesRead, 0, 0, cold, $"no thumbnail after {timeout.TotalSeconds:0.#} s");
+            return new(null, 0, 0, stream?.Calls, stream?.BytesRead, 0, 0, cold, $"no thumbnail after {timeout.TotalSeconds:0.#} s");
         }
         // The PNG is saved after the time is taken, and before the next thumbnail's CPU time is. If the host
         // doesn't finish, the next thumbnail starts a new one, which makes that one cold.
@@ -58,8 +60,8 @@ internal sealed class ThumbnailHost(Handler handler) : IDisposable
         string[] parts = reply.Split(' ');
         double cpuMs = (cpuAfter - cpu).TotalMilliseconds;
         int started = processesAfter - processes;
-        if (parts[0] != "@ok") return new(null, cpuMs, started, stream.Calls, stream.BytesRead, 0, 0, cold, $"no thumbnail ({parts[1]})");
-        return new(double.Parse(parts[1], CultureInfo.InvariantCulture), cpuMs, started, stream.Calls, stream.BytesRead,
+        if (parts[0] != "@ok") return new(null, cpuMs, started, stream?.Calls, stream?.BytesRead, 0, 0, cold, $"no thumbnail ({parts[1]})");
+        return new(double.Parse(parts[1], CultureInfo.InvariantCulture), cpuMs, started, stream?.Calls, stream?.BytesRead,
             int.Parse(parts[2], CultureInfo.InvariantCulture), int.Parse(parts[3], CultureInfo.InvariantCulture), cold, null);
     }
 
@@ -78,7 +80,7 @@ internal sealed class ThumbnailHost(Handler handler) : IDisposable
             CreateNoWindow = true,
         };
         if (Path.GetFileNameWithoutExtension(self).Equals("dotnet", StringComparison.OrdinalIgnoreCase)) info.ArgumentList.Add(typeof(ThumbnailHost).Assembly.Location);
-        foreach (var arg in (string[])["thumbnail-host", handler.Dll, handler.Clsid.ToString()]) info.ArgumentList.Add(arg);
+        foreach (var arg in (string[])["thumbnail-host", handler.Dll, handler.Clsid.ToString(), .. handler.ExtractImage ? ["--extract-image"] : (string[])[]]) info.ArgumentList.Add(arg);
         var replies = _replies = [];
         _process = Process.Start(info)!;
         _fresh = true;
@@ -128,10 +130,11 @@ internal sealed class ThumbnailHost(Handler handler) : IDisposable
         Stop();
     }
 
-    /// <summary>The <c>thumbnail-host &lt;dll&gt; &lt;clsid&gt;</c> command: the host's side.</summary>
+    /// <summary>The <c>thumbnail-host &lt;dll&gt; &lt;clsid&gt; [--extract-image]</c> command: the host's side.</summary>
     public static Task ServeAsync(Options options)
     {
-        if (options.Positional is not [var dll, var clsid]) throw new ToolException("Usage: thumbnail-host <dll> <clsid>; bench starts it.");
+        if (options.Positional is not [var dll, var clsid]) throw new ToolException("Usage: thumbnail-host <dll> <clsid> [--extract-image]; bench starts it.");
+        bool extractImage = options.Flag("extract-image");
         Exception? error = null;
         // Single-threaded, like the thread the surrogate calls handlers on; PowerToys' starts a process with
         // ShellExecuteEx, which wants one.
@@ -139,7 +142,7 @@ internal sealed class ThumbnailHost(Handler handler) : IDisposable
         {
             try
             {
-                Serve(dll, Guid.Parse(clsid));
+                Serve(dll, Guid.Parse(clsid), extractImage);
             }
             catch (Exception e)
             {
@@ -153,7 +156,7 @@ internal sealed class ThumbnailHost(Handler handler) : IDisposable
         return Task.CompletedTask;
     }
 
-    private static unsafe void Serve(string dll, Guid clsid)
+    private static unsafe void Serve(string dll, Guid clsid, bool extractImage)
     {
         nint factory = 0;
         while (Console.ReadLine() is { } line)
@@ -161,11 +164,13 @@ internal sealed class ThumbnailHost(Handler handler) : IDisposable
             string[] parts = line.Split(' ', 3);
             uint size = uint.Parse(parts[0], CultureInfo.InvariantCulture);
             string? png = parts[2] == "-" ? null : parts[2];
-            int hr = Com.UnmarshalStream(Convert.FromHexString(parts[1]), out nint stream);
+            byte[] source = Convert.FromHexString(parts[1]);
+            nint stream = 0;
+            int hr = extractImage ? 0 : Com.UnmarshalStream(source, out stream);
             nint bitmap = 0;
             var watch = Stopwatch.StartNew();
             if (hr >= 0 && factory == 0) hr = Load(dll, clsid, out factory);
-            if (hr >= 0) hr = Render(factory, stream, size, out bitmap);
+            if (hr >= 0) hr = extractImage ? Extract(factory, Encoding.UTF8.GetString(source), size, out bitmap) : Render(factory, stream, size, out bitmap);
             watch.Stop();
             if (stream != 0) Marshal.Release(stream);
 
@@ -228,6 +233,32 @@ internal sealed class ThumbnailHost(Handler handler) : IDisposable
         {
             if (provider != 0) Marshal.Release(provider);
             if (init != 0) Marshal.Release(init);
+        }
+    }
+
+    /// <summary>What Explorer does for each file with an IExtractImage: a new handler, given the path, asked for the bitmap.</summary>
+    private static unsafe int Extract(nint factory, string pdf, uint size, out nint bitmap)
+    {
+        bitmap = 0;
+        nint file = 0, extract = 0;
+        try
+        {
+            int hr = Com.CreateInstance(factory, Com.IID_IPersistFile, out file);
+            if (hr < 0) return hr;
+            hr = Com.Load(file, pdf, STGM_READ);
+            if (hr < 0) return hr;
+            hr = Marshal.QueryInterface(file, Com.IID_IExtractImage, out extract);
+            if (hr < 0) return hr;
+            // Fitted in size x size, as IThumbnailProviders are asked to. E_PENDING says it can extract in the
+            // background, which Explorer does; this thread is as good.
+            hr = Com.GetLocation(extract, size, Com.IEIFLAG_ORIGSIZE);
+            if (hr < 0 && hr != Com.E_PENDING) return hr;
+            return Com.Extract(extract, out bitmap);
+        }
+        finally
+        {
+            if (extract != 0) Marshal.Release(extract);
+            if (file != 0) Marshal.Release(file);
         }
     }
 

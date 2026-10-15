@@ -14,11 +14,11 @@ namespace Folio.Tools.Bench;
 /// machine can be used during a run, though that adds noise. Viewers are closed between runs, and every
 /// document/viewer pair gets --warmup runs that aren't recorded first, so the numbers are warm starts (files in the
 /// OS cache). Viewers take turns, to spread out noise. The thumbnail handlers are measured after the viewers
-/// (see <see cref="Thumbnails"/>).
+/// (see <see cref="Thumbnails"/>). --viewer or --thumbnail measures only one of them.
 /// </remarks>
 internal static class BenchCommand
 {
-    /// <summary>What --apps can name: viewers, and thumbnail handlers. Folio is both.</summary>
+    /// <summary>What --apps can name: viewers, and thumbnail handlers. Folio, Acrobat and Sumatra are both.</summary>
     public static readonly string[] All = [.. Viewer.All.Union(Handler.All)];
 
     public static async Task RunAsync(Options options)
@@ -45,26 +45,38 @@ internal static class BenchCommand
         string stamp = DateTime.Now.ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture);
         string outDir = Path.GetFullPath(options.String("out") ?? Repo.Path("out", "bench", stamp));
         bool saveFrames = options.Flag("save-frames"), closeRunning = options.Flag("close-running");
+        // Either part on its own, or both.
+        bool viewerOnly = options.Flag("viewer"), thumbnailOnly = options.Flag("thumbnail");
+        bool measureViewers = viewerOnly || !thumbnailOnly, measureThumbnails = thumbnailOnly || !viewerOnly;
+        if (!names.Any(n => (measureViewers && Viewer.All.Contains(n)) || (measureThumbnails && Handler.All.Contains(n))))
+            throw new ToolException($"{string.Join(", ", names)} {(names.Count == 1 ? "has" : "have")} no {(measureViewers ? "viewer" : "thumbnail handler")} to measure.");
 
         var viewers = new List<Viewer>();
         try
         {
-            foreach (var name in names.Where(n => Viewer.All.Contains(n)))
+            var notInstalled = new HashSet<string>();
+            foreach (var name in names.Where(n => measureViewers && Viewer.All.Contains(n)))
             {
                 if (Viewer.Find(name, folio) is { } viewer) viewers.Add(viewer);
-                else Console.WriteLine($"{name} isn't installed; skipping it.");
+                else
+                {
+                    Console.WriteLine($"{name} isn't installed; skipping it.");
+                    notInstalled.Add(name);
+                }
             }
             CloseRunning(viewers, closeRunning);
-            if (folioOption is null && names.Contains("Folio")) PublishFolio(Path.GetDirectoryName(folio)!);
+            if (measureViewers && folioOption is null && names.Contains("Folio")) PublishFolio(Path.GetDirectoryName(folio)!);
             // A given Folio build is measured with the handler next to it, as the package has it.
-            string? folioHandler = !names.Contains("Folio") ? null
+            string? folioHandler = !measureThumbnails || !names.Contains("Folio") ? null
                 : folioOption is null ? Handler.PublishFolio()
                 : Path.Combine(Path.GetDirectoryName(folio)!, Handler.FolioDll);
             var handlers = new List<Handler>();
-            foreach (var name in names.Where(n => Handler.All.Contains(n)))
+            foreach (var name in names.Where(n => measureThumbnails && Handler.All.Contains(n)))
             {
                 if (Handler.Find(name, folioHandler) is { } handler) handlers.Add(handler);
-                else Console.WriteLine(name == "Folio" ? $"There's no {Handler.FolioDll} next to {folio}; skipping Folio's thumbnails." : $"{name} isn't installed; skipping it.");
+                else if (name == "Folio") Console.WriteLine($"There's no {Handler.FolioDll} next to {folio}; skipping Folio's thumbnails.");
+                else if (!Viewer.All.Contains(name)) Console.WriteLine($"{name} isn't installed; skipping it.");
+                else if (!notInstalled.Contains(name)) Console.WriteLine($"{name}'s thumbnail handler isn't installed; skipping its thumbnails.");
             }
             if (viewers.Count == 0 && handlers.Count == 0) throw new ToolException("None of the apps are installed.");
 
@@ -247,7 +259,7 @@ internal static class BenchCommand
                     string range = t.MinMs is null ? "" : $"{t.MinMs:N1}-{t.MaxMs:N1}";
                     string read = t.ReadMB is null ? "-" : $"{t.ReadMB:N1} MB";
                     Console.WriteLine($"  {t.App.PadRight(width)}  {$"{t.Succeeded}/{t.Runs}",5}  {(t.Ms is null ? "-" : $"{t.Ms:N1} ms"),10}  {range,15}  {Ms(t.CpuMs),8}  " +
-                        $"{t.Processes,9:0}  {t.StreamCalls,12:N0}  {read,7}  {(t.Width is null ? "-" : $"{t.Width}x{t.Height}")}");
+                        $"{t.Processes,9:0}  {(t.StreamCalls is null ? "-" : $"{t.StreamCalls:N0}"),12}  {read,7}  {(t.Width is null ? "-" : $"{t.Width}x{t.Height}")}");
                 }
             }
             if (results.ThumbnailColdMs is { Count: > 0 } cold)

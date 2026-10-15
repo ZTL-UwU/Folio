@@ -12,10 +12,10 @@ internal sealed class Options
 {
     private static readonly Dictionary<string, string[]> Known = new()
     {
-        ["bench"] = ["apps", "runs", "warmup", "settle", "timeout", "cooldown", "fraction", "folio", "thumbnail-size", "out", "save-frames", "close-running"],
+        ["bench"] = ["apps", "runs", "warmup", "settle", "timeout", "cooldown", "fraction", "folio", "thumbnail-size", "out", "save-frames", "close-running", "viewer", "thumbnail"],
         ["chart"] = ["apps", "out"],
         ["icon"] = [],
-        ["thumbnail-host"] = [],
+        ["thumbnail-host"] = ["extract-image"],
     };
 
     private readonly Dictionary<string, string?> _named = new(StringComparer.OrdinalIgnoreCase);
@@ -167,6 +167,11 @@ internal static class Apps
     public static string? Edge() => FromAppPaths("msedge.exe") ?? FirstExisting(
         @"%ProgramFiles(x86)%\Microsoft\Edge\Application\msedge.exe",
         @"%ProgramFiles%\Microsoft\Edge\Application\msedge.exe");
+
+    public static string? Sumatra() => FromAppPaths("SumatraPDF.exe") ?? FirstExisting(
+        @"%LOCALAPPDATA%\SumatraPDF\SumatraPDF.exe",
+        @"%ProgramFiles%\SumatraPDF\SumatraPDF.exe",
+        @"%ProgramFiles(x86)%\SumatraPDF\SumatraPDF.exe");
 }
 
 /// <summary>Renders HTML to PNG with headless Microsoft Edge, which every Windows 11 machine has.</summary>

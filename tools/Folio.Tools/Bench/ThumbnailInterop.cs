@@ -130,6 +130,11 @@ internal static unsafe partial class Com
     public static readonly Guid IID_IStream = new("0000000c-0000-0000-C000-000000000046");
     public static readonly Guid IID_IInitializeWithStream = new("b824b49d-22ac-4161-ac8a-9916e8fa3f7f");
     public static readonly Guid IID_IThumbnailProvider = new("e357fccd-a995-4576-b01f-234630154e96");
+    public static readonly Guid IID_IPersistFile = new("0000010b-0000-0000-C000-000000000046");
+    public static readonly Guid IID_IExtractImage = new("bb2e617c-0920-11d1-9a0b-00c04fc2d6c1");
+
+    public const int E_PENDING = unchecked((int)0x8000000A);
+    public const uint IEIFLAG_ORIGSIZE = 0x40;
 
     private static readonly StrategyBasedComWrappers Wrappers = new();
 
@@ -170,7 +175,7 @@ internal static unsafe partial class Com
         return hr;
     }
 
-    // The handler's interfaces, called through their vtables: each method used is the first after IUnknown's.
+    // The handler's interfaces, called through their vtables.
     public static int CreateInstance(nint factory, Guid iid, out nint instance)
     {
         nint result = 0;
@@ -188,6 +193,31 @@ internal static unsafe partial class Com
         int a = 0;
         int hr = ((delegate* unmanaged[Stdcall]<nint, uint, nint*, int*, int>)Method(provider, 3))(provider, size, &b, &a);
         (bitmap, alphaType) = (b, a);
+        return hr;
+    }
+
+    /// <summary>IPersistFile::Load, after IPersist::GetClassID and IsDirty.</summary>
+    public static int Load(nint persistFile, string path, uint mode)
+    {
+        fixed (char* p = path) return ((delegate* unmanaged[Stdcall]<nint, char*, uint, int>)Method(persistFile, 5))(persistFile, p, mode);
+    }
+
+    /// <summary>IExtractImage::GetLocation, for a 32-bit bitmap fitted in <paramref name="size"/> x <paramref name="size"/>.</summary>
+    public static int GetLocation(nint extractImage, uint size, uint flags)
+    {
+        const int MAX_PATH = 260;
+        char* path = stackalloc char[MAX_PATH];
+        uint priority = 0;
+        int* box = stackalloc int[] { (int)size, (int)size }; // SIZE
+        return ((delegate* unmanaged[Stdcall]<nint, char*, uint, uint*, int*, uint, uint*, int>)Method(extractImage, 3))(
+            extractImage, path, MAX_PATH, &priority, box, 32, &flags);
+    }
+
+    public static int Extract(nint extractImage, out nint bitmap)
+    {
+        nint b = 0;
+        int hr = ((delegate* unmanaged[Stdcall]<nint, nint*, int>)Method(extractImage, 4))(extractImage, &b);
+        bitmap = b;
         return hr;
     }
 
