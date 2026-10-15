@@ -110,8 +110,11 @@ internal static class Dialogs
                 ("Ctrl+,", "Settings"),
             ]),
             ("Navigation", [
-                ("PgUp / PgDn", "Previous / next screen"),
-                ("Left / Right", "Previous / next page"), ("Ctrl+Home / Ctrl+End", "First / last page"),
+                ("Up / Down", "Scroll"),
+                ("PgUp / PgDn", "Previous / next screen, or page in single page and fit page"),
+                ("Shift+Space / Space", "Previous / next screen, or page in single page and fit page"),
+                ("Left / Right", "Previous / next page, or scroll when the page is wider than the window"),
+                ("Home / End", "Beginning / end of document"),
                 ("F9", "Show or hide the sidebar"),
             ]),
             ("Search and selection", [
@@ -135,7 +138,7 @@ internal static class Dialogs
             for (int i = 0; i < items.Length; i++)
             {
                 grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-                var action = new TextBlock { Text = items[i].Action, VerticalAlignment = VerticalAlignment.Center };
+                var action = new TextBlock { Text = items[i].Action, TextWrapping = TextWrapping.Wrap, VerticalAlignment = VerticalAlignment.Center };
                 var keys = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 4, HorizontalAlignment = HorizontalAlignment.Right };
                 var alternatives = items[i].Keys.Split(" / ");
                 for (int alt = 0; alt < alternatives.Length; alt++)

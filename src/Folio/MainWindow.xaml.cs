@@ -496,7 +496,11 @@ public sealed partial class MainWindow : Window
     private void OnActivated(object sender, WindowActivatedEventArgs e)
     {
         if (e.WindowActivationState != WindowActivationState.Deactivated) App.LastActiveWindow = this;
-        else Viewer.StopMiddleScroll();
+        else
+        {
+            Viewer.StopMiddleScroll();
+            Viewer.StopKeyScroll();
+        }
     }
 
     /// <summary>Releases everything that would otherwise outlive the window.</summary>
