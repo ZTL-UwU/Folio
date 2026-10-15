@@ -18,7 +18,7 @@ namespace Folio.Tools.Bench;
 /// </remarks>
 internal static class BenchCommand
 {
-    /// <summary>What --apps can name: viewers, and thumbnail handlers. Folio is both.</summary>
+    /// <summary>What --apps can name: viewers, and thumbnail handlers. Folio, Acrobat and Sumatra are both.</summary>
     public static readonly string[] All = [.. Viewer.All.Union(Handler.All)];
 
     public static async Task RunAsync(Options options)
@@ -64,7 +64,9 @@ internal static class BenchCommand
             foreach (var name in names.Where(n => Handler.All.Contains(n)))
             {
                 if (Handler.Find(name, folioHandler) is { } handler) handlers.Add(handler);
-                else Console.WriteLine(name == "Folio" ? $"There's no {Handler.FolioDll} next to {folio}; skipping Folio's thumbnails." : $"{name} isn't installed; skipping it.");
+                else if (name == "Folio") Console.WriteLine($"There's no {Handler.FolioDll} next to {folio}; skipping Folio's thumbnails.");
+                else if (viewers.Any(v => v.Name == name)) Console.WriteLine($"{name}'s thumbnail handler isn't installed; skipping its thumbnails.");
+                else if (!Viewer.All.Contains(name)) Console.WriteLine($"{name} isn't installed; skipping it.");
             }
             if (viewers.Count == 0 && handlers.Count == 0) throw new ToolException("None of the apps are installed.");
 
@@ -247,7 +249,7 @@ internal static class BenchCommand
                     string range = t.MinMs is null ? "" : $"{t.MinMs:N1}-{t.MaxMs:N1}";
                     string read = t.ReadMB is null ? "-" : $"{t.ReadMB:N1} MB";
                     Console.WriteLine($"  {t.App.PadRight(width)}  {$"{t.Succeeded}/{t.Runs}",5}  {(t.Ms is null ? "-" : $"{t.Ms:N1} ms"),10}  {range,15}  {Ms(t.CpuMs),8}  " +
-                        $"{t.Processes,9:0}  {t.StreamCalls,12:N0}  {read,7}  {(t.Width is null ? "-" : $"{t.Width}x{t.Height}")}");
+                        $"{t.Processes,9:0}  {(t.StreamCalls is null ? "-" : $"{t.StreamCalls:N0}"),12}  {read,7}  {(t.Width is null ? "-" : $"{t.Width}x{t.Height}")}");
                 }
             }
             if (results.ThumbnailColdMs is { Count: > 0 } cold)

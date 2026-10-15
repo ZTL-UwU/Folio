@@ -90,10 +90,7 @@ internal sealed class Viewer : IDisposable
                 return new Viewer { Name = name, Exe = acrobat, Arguments = Quote, Images = ["Acrobat", "AcroRd32", "AcroCEF", "RdrCEF"] };
 
             case "Sumatra":
-                if ((Apps.FromAppPaths("SumatraPDF.exe") ?? Apps.FirstExisting(
-                    @"%LOCALAPPDATA%\SumatraPDF\SumatraPDF.exe",
-                    @"%ProgramFiles%\SumatraPDF\SumatraPDF.exe",
-                    @"%ProgramFiles(x86)%\SumatraPDF\SumatraPDF.exe")) is not { } sumatra) return null;
+                if (Apps.Sumatra() is not { } sumatra) return null;
                 // Settings of its own, so a run neither restores a session nor changes the installed copy's settings.
                 // A fresh settings folder would leave the update check and session restore on.
                 Directory.CreateDirectory(scratch);

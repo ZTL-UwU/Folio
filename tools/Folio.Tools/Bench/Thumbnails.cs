@@ -4,16 +4,26 @@ using System.Runtime.InteropServices;
 
 namespace Folio.Tools.Bench;
 
-/// <summary>A File Explorer thumbnail handler for PDFs.</summary>
-internal sealed record Handler(string Name, string Dll, Guid Clsid, string? Version)
+/// <summary>
+/// A File Explorer thumbnail handler for PDFs. Most are IThumbnailProviders, given a stream; one that
+/// <paramref name="ExtractImage"/> is the older IExtractImage, given the file's path, which Explorer still uses
+/// when a file type has no IThumbnailProvider.
+/// </summary>
+internal sealed record Handler(string Name, string Dll, Guid Clsid, string? Version, bool ExtractImage = false)
 {
-    public static readonly string[] All = ["Folio", "PowerToys"];
+    public static readonly string[] All = ["Folio", "Acrobat", "Sumatra", "PowerToys"];
 
     /// <summary>ThumbnailProvider.Clsid in src/Folio.Thumbnails.</summary>
     private static readonly Guid FolioClsid = new("54e57302-4f85-47eb-8be3-76ee7e671857");
 
     /// <summary>CLSID_PdfThumbnailProvider in PowerToys' src/modules/previewpane/FileExplorerDllExporter/dllmain.cpp.</summary>
     private static readonly Guid PowerToysClsid = new("d8bb9942-93bd-412d-87e4-33fab214dc1a");
+
+    /// <summary>The PDF class of SumatraPDF's PdfPreview.dll, which has one per format it opens.</summary>
+    private static readonly Guid SumatraClsid = new("3d3b1846-cc43-42ae-bff9-d914083c2ba3");
+
+    /// <summary>"PDF Shell Extension", Acrobat's IExtractImage for Acrobat.Document.DC.</summary>
+    private static readonly Guid AcrobatClsid = new("f9db5320-233e-11d1-9f84-707f02c10627");
 
     public const string FolioDll = "Folio.Thumbnails.dll";
 
@@ -27,9 +37,35 @@ internal sealed record Handler(string Name, string Dll, Guid Clsid, string? Vers
     public static Handler? Find(string name, string? folioDll) => name switch
     {
         "Folio" => folioDll is not null && File.Exists(folioDll) ? new("Folio", folioDll, FolioClsid, null) : null,
+        "Acrobat" => FindAcrobat(),
+        "Sumatra" => FindSumatra(),
         "PowerToys" => FindPowerToys(),
         _ => throw new ArgumentException(name),
     };
+
+    /// <summary>
+    /// Acrobat's, which is only installed when its preference to show PDF thumbnails in File Explorer is turned on.
+    /// It starts Acrobat to make the thumbnail.
+    /// </summary>
+    private static Handler? FindAcrobat()
+    {
+        if (Apps.FirstExisting(@"%CommonProgramFiles%\Adobe\Acrobat\ActiveX\PDFShell64.dll") is not { } dll) return null;
+        var info = FileVersionInfo.GetVersionInfo(dll);
+        return new("Acrobat", dll, AcrobatClsid, $"{info.FileMajorPart}.{info.FileMinorPart}", ExtractImage: true);
+    }
+
+    /// <summary>
+    /// SumatraPDF's, next to the viewer. Its installer only registers it when asked to, and doesn't install it with
+    /// the portable copy, but it's loaded from its DLL.
+    /// </summary>
+    private static Handler? FindSumatra()
+    {
+        if (Apps.Sumatra() is not { } sumatra) return null;
+        string dll = Path.Combine(Path.GetDirectoryName(sumatra)!, "PdfPreview.dll");
+        if (!File.Exists(dll)) return null;
+        var info = FileVersionInfo.GetVersionInfo(dll);
+        return new("Sumatra", dll, SumatraClsid, $"{info.FileMajorPart}.{info.FileMinorPart}");
+    }
 
     /// <summary>PowerToys', from a per-user or machine-wide install. It doesn't have to be turned on, as it's loaded from its DLL.</summary>
     private static Handler? FindPowerToys()
@@ -128,8 +164,9 @@ internal static class Thumbnails
                         }
                         else
                         {
+                            string stream = result.StreamCalls is null ? "" : $"{result.StreamCalls,5:N0} stream calls   {result.BytesRead / 1e6,4:N1} MB read   ";
                             Console.WriteLine(line + $"{result.Ms,7:N1} ms   CPU {result.CpuMs,5:N0} ms   {result.Processes} processes   " +
-                                $"{result.StreamCalls,5:N0} stream calls   {result.BytesRead / 1e6,4:N1} MB read   {result.Width}x{result.Height}" +
+                                $"{stream}{result.Width}x{result.Height}" +
                                 (result.Cold ? "   (cold: loaded the handler)" : ""));
                         }
                         if (run <= 0) continue;
