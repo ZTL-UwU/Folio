@@ -12,6 +12,7 @@ const string Usage = """
 
       bench   Times PDF viewers opening the benchmark documents and measures their memory, then times
               File Explorer thumbnail handlers (Folio's, Acrobat's, SumatraPDF's and PowerToys') making thumbnails of them.
+              --viewer or --thumbnail to measure only that part.
               --apps Folio,Edge,Acrobat,Sumatra,PowerToys   --runs 5   --warmup 1   --folio <exe>
               --thumbnail-size 256   --close-running   --save-frames   --settle 5   --timeout 60   --out <dir>
       chart   Redraws a bench chart: chart <results.json> [--apps Folio,Edge] [--out <png>]

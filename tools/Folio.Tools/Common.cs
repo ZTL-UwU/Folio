@@ -12,7 +12,7 @@ internal sealed class Options
 {
     private static readonly Dictionary<string, string[]> Known = new()
     {
-        ["bench"] = ["apps", "runs", "warmup", "settle", "timeout", "cooldown", "fraction", "folio", "thumbnail-size", "out", "save-frames", "close-running"],
+        ["bench"] = ["apps", "runs", "warmup", "settle", "timeout", "cooldown", "fraction", "folio", "thumbnail-size", "out", "save-frames", "close-running", "viewer", "thumbnail"],
         ["chart"] = ["apps", "out"],
         ["icon"] = [],
         ["thumbnail-host"] = ["extract-image"],

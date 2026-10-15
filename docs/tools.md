@@ -31,8 +31,8 @@ If PowerShell refuses to run scripts, use `pwsh tools\dev.ps1` (PowerShell 7) or
 
 ```powershell
 dotnet run --project tools/Folio.Tools -- bench
-dotnet run --project tools/Folio.Tools -- bench --apps Folio,Edge --runs 10
-dotnet run --project tools/Folio.Tools -- bench --apps PowerToys    # only PowerToys' thumbnails; opens no windows
+dotnet run --project tools/Folio.Tools -- bench --viewer --apps Folio,Edge --runs 10
+dotnet run --project tools/Folio.Tools -- bench --thumbnail    # only the thumbnail handlers; opens no windows
 ```
 
 It publishes this checkout's Folio to `out\bench\folio`, and its File Explorer thumbnail handler (`src/Folio.Thumbnails`) with the `pdfium.dll` it loads to `out\bench\thumbnails\<runtime>`. The handler is built for the architecture of the benchmark's own process, which hosts it, rather than for Windows' as Folio is: they differ when an x64 dotnet runs on ARM64 Windows. It measures them against whichever of Microsoft Edge, Adobe Acrobat, SumatraPDF and PowerToys are installed, on two documents generated into `out\bench\documents`: two pages of text, and 1,000 pages whose first page is a topographic map (a 15-megapixel image under some 140,000 contour line segments), the rest text with photos and charts.
@@ -59,6 +59,8 @@ dotnet run --project tools/Folio.Tools -- chart out\bench\<date-time>\results.js
 
 | Option | Default | |
 | --- | --- | --- |
+| `--viewer` | | Measure only the viewers |
+| `--thumbnail` | | Measure only the thumbnail handlers; both, without either |
 | `--apps` | Folio,Edge,Acrobat,Sumatra,PowerToys | Viewers and thumbnail handlers to measure; Folio, Acrobat and Sumatra are both |
 | `--runs` | 5 | Recorded runs per app and document |
 | `--warmup` | 1 | Unrecorded runs first |
