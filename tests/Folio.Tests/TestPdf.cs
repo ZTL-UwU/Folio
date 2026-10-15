@@ -18,14 +18,25 @@ internal static class TestPdf
     /// <param name="mediaBox">The /MediaBox of every page.</param>
     /// <param name="userPassword">Encrypts the file so it needs this password to open.</param>
     /// <param name="marker">A comment written into the body, to check that saving keeps the original bytes.</param>
-    public static byte[] Create(int pages = 1, string mediaBox = "0 0 200 300", string? userPassword = null, string marker = "")
+    /// <param name="text">Text written on every page in Helvetica, a line per <c>\n</c>, from the top left. Not with <paramref name="userPassword"/>.</param>
+    public static byte[] Create(int pages = 1, string mediaBox = "0 0 200 300", string? userPassword = null, string marker = "", string? text = null)
     {
         var objects = new List<string>
         {
             "<< /Type /Catalog /Pages 2 0 R >>",
             $"<< /Type /Pages /Kids [{string.Join(" ", Enumerable.Range(0, pages).Select(i => $"{i + 3} 0 R"))}] /Count {pages} >>",
         };
-        for (int i = 0; i < pages; i++) objects.Add($"<< /Type /Page /Parent 2 0 R /MediaBox [{mediaBox}] >>");
+        int font = pages + 3, content = pages + 4;
+        string resources = text is null ? "" : $" /Resources << /Font << /F1 {font} 0 R >> >> /Contents {content} 0 R";
+        for (int i = 0; i < pages; i++) objects.Add($"<< /Type /Page /Parent 2 0 R /MediaBox [{mediaBox}]{resources} >>");
+        if (text is not null)
+        {
+            if (userPassword is not null) throw new ArgumentException("Text isn't encrypted, so it can't go in an encrypted file.");
+            string top = mediaBox.Split(' ')[3];
+            string stream = $"BT /F1 12 Tf 14 TL 10 {top} Td T* {string.Concat(text.Split('\n').Select(line => $"({line}) Tj T* "))}ET";
+            objects.Add("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>");
+            objects.Add($"<< /Length {stream.Length} >>\nstream\n{stream}\nendstream");
+        }
 
         string trailerExtra = "";
         if (userPassword is not null)

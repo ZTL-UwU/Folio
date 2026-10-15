@@ -227,4 +227,39 @@ public sealed class PdfDocumentTests : IDisposable
 
         Assert.Equal("b", Assert.Single(await document.GetAllAnnotationsAsync(CancellationToken.None)).Contents);
     }
+
+    [Fact]
+    public async Task SearchText_HasPdfiumsCharacterIndexes_AndFindsWordsHyphenatedAcrossLines()
+    {
+        string path = _temp.Write("text.pdf", TestPdf.Create(text: "This is an exam-\nple of a search\nengine."));
+        using var document = await PdfDocument.OpenAsync(path);
+        string text = await document.GetSearchTextAsync(0, CancellationToken.None);
+        var page = await document.GetPageTextAsync(0);
+        Assert.Equal(page.Count, text.Length);
+
+        var hyphenated = Assert.Single(TextSearch.Find(text, 0, "example", false, false));
+        Assert.Equal("example", hyphenated.Match);
+        var acrossLines = Assert.Single(TextSearch.Find(text, 0, "search engine", false, false));
+        Assert.Equal("search engine", acrossLines.Match);
+        Assert.NotEmpty(page.Layout.SourceRangeRects(acrossLines.CharIndex, acrossLines.CharIndex + acrossLines.Length));
+        Assert.Same(text, await document.GetSearchTextAsync(0, CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task SearchText_IsKept_WhenReadAheadOrShown()
+    {
+        string path = _temp.Write("text.pdf", TestPdf.Create(pages: 3, text: "Some text"));
+        using var document = await PdfDocument.OpenAsync(path);
+        Assert.Null(document.EstimatedTextLength);
+
+        var page = await document.GetPageTextAsync(1);
+        Assert.Equal(3L * page.Count, document.EstimatedTextLength);
+        var shown = document.GetSearchTextAsync(1, CancellationToken.None);
+        Assert.True(shown.IsCompletedSuccessfully);
+        Assert.Equal(page.Count, shown.Result.Length);
+
+        await document.ReadSearchTextAsync(2, CancellationToken.None);
+        for (int i = 0; i < 3; i++) Assert.True(document.GetSearchTextAsync(i, CancellationToken.None).IsCompletedSuccessfully);
+        Assert.Equal(3L * page.Count, document.EstimatedTextLength);
+    }
 }

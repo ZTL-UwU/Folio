@@ -51,6 +51,8 @@ public sealed partial class MainWindow : Window
     private bool _hideStartPage;
     private RecentDocument? _entry;
     private CancellationTokenSource? _searchCts;
+    /// <summary>Reading the pages' text while the search panel is open; see <see cref="ReadSearchText"/>.</summary>
+    private CancellationTokenSource? _searchTextCts;
     private CancellationTokenSource? _annotationScanCts;
     private FileSystemWatcher? _watcher;
     private DateTime _ignoreWatcherUntil;
@@ -95,7 +97,6 @@ public sealed partial class MainWindow : Window
         App.OpenWindows.Add(this);
 
         _searchDebounce = DispatcherQueue.CreateTimer();
-        _searchDebounce.Interval = TimeSpan.FromMilliseconds(350);
         _searchDebounce.IsRepeating = false;
         _searchDebounce.Tick += OnSearchDebounceTick;
 
@@ -523,6 +524,7 @@ public sealed partial class MainWindow : Window
         _thumbnailSyncThrottle.Stop();
         _thumbnailSyncThrottle.Tick -= OnThumbnailSyncThrottleTick;
         _searchCts?.Cancel();
+        _searchTextCts?.Cancel();
         _annotationScanCts?.Cancel();
         _watcher?.Dispose();
         _watcher = null;
@@ -1256,7 +1258,18 @@ public sealed partial class MainWindow : Window
         if (args.Reason != AutoSuggestionBoxTextChangeReason.UserInput) return;
         _searchDebounce.Stop();
         if (string.IsNullOrEmpty(sender.Text)) StartSearch("");
-        else _searchDebounce.Start();
+        else
+        {
+            // Searching takes milliseconds once the pages are read, so it can keep up with typing. The shorter the
+            // query, the more it matches and the likelier it's a word still being typed, so the longer it waits.
+            int length = sender.Text.Trim().Length;
+            var (delay, max) = length < 3 ? (400.0, 450.0) : length < 5 ? (150.0, 180.0) : (50.0, 80.0);
+            // Those suit about two million characters of text (a 1,000-page document). The results, and the time to
+            // list them, grow with the text, so scale the wait with it, up to a limit.
+            if (_document?.EstimatedTextLength is { } chars) delay = Math.Min(delay * Math.Max(chars / 2e6, 0.25), max);
+            _searchDebounce.Interval = TimeSpan.FromMilliseconds(delay);
+            _searchDebounce.Start();
+        }
     }
 
     private void OnSearchSubmitted(AutoSuggestBox sender, AutoSuggestBoxQuerySubmittedEventArgs args)
@@ -1311,24 +1324,39 @@ public sealed partial class MainWindow : Window
         SearchStatus.Text = "Searching…";
         bool matchCase = MatchCaseToggle.IsChecked == true, wholeWords = WholeWordToggle.IsChecked == true;
         int start = Viewer.CurrentPage;
+        // From the current page to the end, then from the start, so the first result selected is the next one
+        // from where the reader is. The list stays in document order: results from before the current page go
+        // in ahead of the others, and wrapped counts them.
+        int wrapped = 0;
+        long yielded = Environment.TickCount64;
         try
         {
-            for (int i = 0; i < document.PageCount; i++)
+            for (int n = 0; n < document.PageCount; n++)
             {
-                var hits = await document.SearchPageAsync(i, _searchQuery, matchCase, wholeWords, cts.Token);
+                int i = (start + n) % document.PageCount;
+                string text = await document.GetSearchTextAsync(i, cts.Token);
                 if (cts.IsCancellationRequested) return;
+                var hits = TextSearch.Find(text, i, _searchQuery, matchCase, wholeWords);
                 if (hits.Count > 0)
                 {
                     string label = document.GetPageLabel(i);
-                    int first = _searchItems.Count;
-                    foreach (var hit in hits) _searchItems.Add(new SearchItem(hit, label));
+                    int first = i < start ? wrapped : _searchItems.Count;
+                    for (int h = 0; h < hits.Count; h++) _searchItems.Insert(first + h, new SearchItem(hits[h], label));
+                    if (i < start) wrapped += hits.Count;
+                    if (_searchIndex >= first) _searchIndex += hits.Count;
                     Viewer.AddSearchResults(hits);
-                    if (_searchIndex < 0 && i >= start) SelectSearchResult(first);
+                    if (_searchIndex < 0) SelectSearchResult(first);
                 }
-                SearchProgress.Value = i + 1;
+                SearchProgress.Value = n + 1;
                 SearchStatus.Text = ResultText(_searchItems.Count) + "…";
+                // Pages read by an earlier search come back at once; let the window draw and take input now and then.
+                if (Environment.TickCount64 - yielded > 30)
+                {
+                    await Task.Yield();
+                    if (cts.IsCancellationRequested) return;
+                    yielded = Environment.TickCount64;
+                }
             }
-            if (_searchIndex < 0 && _searchItems.Count > 0) SelectSearchResult(0);
             SearchStatus.Text = _searchItems.Count == 0 ? "No results found" : ResultText(_searchItems.Count);
         }
         catch (Exception ex) when (ex is OperationCanceledException or ObjectDisposedException)
@@ -1353,6 +1381,24 @@ public sealed partial class MainWindow : Window
         AppTitleBar.IsPaneToggleButtonVisible = false;
         AppTitleBar.IsBackButtonVisible = true;
         ThumbnailList.Visibility = OutlineTree.Visibility = AnnotationsPanel.Visibility = AttachmentList.Visibility = Visibility.Collapsed;
+        ReadSearchText();
+    }
+
+    /// <summary>
+    /// Starts reading the pages' text when search opens rather than when the document does, so it costs nothing
+    /// for documents that aren't searched, and is mostly done by the time the query is typed.
+    /// </summary>
+    private async void ReadSearchText()
+    {
+        if (_document is null || _searchTextCts is not null) return;
+        var cts = _searchTextCts = new CancellationTokenSource();
+        try
+        {
+            await _document.ReadSearchTextAsync(Viewer.CurrentPage, cts.Token);
+        }
+        catch (Exception ex) when (ex is OperationCanceledException or ObjectDisposedException)
+        {
+        }
     }
 
     private static string ResultText(int count) => count == 1 ? "1 result" : $"{count:N0} results";
@@ -1361,6 +1407,8 @@ public sealed partial class MainWindow : Window
     {
         _searchCts?.Cancel();
         _searchCts = null;
+        _searchTextCts?.Cancel();
+        _searchTextCts = null;
         _searchDebounce.Stop();
         _searchItems.Clear();
         _searchIndex = -1;

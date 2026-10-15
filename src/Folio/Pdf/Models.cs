@@ -123,7 +123,10 @@ public sealed class PageText
     private bool IsHigh(int i) => CodePoints[i] is >= 0xD800 and <= 0xDBFF;
     private bool IsLow(int i) => CodePoints[i] is >= 0xDC00 and <= 0xDFFF;
 
-    public bool IsWordChar(int i) => i >= 0 && i < Count && CodePoints[i] > 32 && !char.IsWhiteSpace((char)Math.Min(CodePoints[i], 0xFFFF)) && !IsPunctuation(CodePoints[i]);
+    public bool IsWordChar(int i) => i >= 0 && i < Count && IsWordCodePoint(CodePoints[i]);
+
+    /// <summary>Whether a character belongs to a word, for double-click selection and whole-word search.</summary>
+    public static bool IsWordCodePoint(int cp) => cp > 32 && !char.IsWhiteSpace((char)Math.Min(cp, 0xFFFF)) && !IsPunctuation(cp);
 
     private static bool IsPunctuation(int cp) => cp < 0x10000 && char.IsPunctuation((char)cp) && cp != '\'' && cp != '-' && cp != '_';
 }
