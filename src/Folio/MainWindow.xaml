@@ -836,13 +836,6 @@
                             <FontIcon FontSize="14" Glyph="&#xE70D;" />
                         </Button>
                     </Grid>
-                    <ProgressBar
-                        x:Name="SearchProgress"
-                        Grid.Row="1"
-                        Margin="16,0,16,0"
-                        VerticalAlignment="Bottom"
-                        IsIndeterminate="False"
-                        Visibility="Collapsed" />
                     <ListView
                         x:Name="SearchResultList"
                         Grid.Row="2"

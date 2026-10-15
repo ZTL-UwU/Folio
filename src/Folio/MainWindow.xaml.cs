@@ -1316,14 +1316,10 @@ public sealed partial class MainWindow : Window
         if (string.IsNullOrEmpty(_searchQuery))
         {
             SearchStatus.Text = "";
-            SearchProgress.Visibility = Visibility.Collapsed;
             return;
         }
         var cts = _searchCts = new CancellationTokenSource();
         var document = _document;
-        SearchProgress.Visibility = Visibility.Visible;
-        SearchProgress.Maximum = document.PageCount;
-        SearchProgress.Value = 0;
         SearchStatus.Text = "Searching…";
         var options = _searchOptions = CurrentSearchOptions();
         int start = Viewer.CurrentPage;
@@ -1352,7 +1348,6 @@ public sealed partial class MainWindow : Window
                     ListSearchResults(pending, start);
                     listed = Environment.TickCount64;
                 }
-                SearchProgress.Value = i + 1;
                 SearchStatus.Text = ResultText(found) + "…";
                 // Pages read by an earlier search come back at once; let the window draw and take input now and then,
                 // and after updating the list, which takes it a while.
@@ -1370,10 +1365,6 @@ public sealed partial class MainWindow : Window
         }
         catch (Exception ex) when (ex is OperationCanceledException or ObjectDisposedException)
         {
-        }
-        finally
-        {
-            if (_searchCts == cts) SearchProgress.Visibility = Visibility.Collapsed;
         }
     }
 
@@ -1470,7 +1461,6 @@ public sealed partial class MainWindow : Window
         SearchStatus.Text = "";
         SearchPanel.Visibility = Visibility.Collapsed;
         SidebarSelector.Visibility = Visibility.Visible;
-        SearchProgress.Visibility = Visibility.Collapsed;
         AppTitleBar.IsBackButtonVisible = false;
         AppTitleBar.IsPaneToggleButtonVisible = _document is not null;
         if (_sidebarOpen) SidebarColumn.Width = new GridLength(SidebarWidth());
