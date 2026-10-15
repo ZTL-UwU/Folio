@@ -5,17 +5,22 @@ using Windows.Graphics.Capture;
 namespace Folio.Tools.Bench;
 
 /// <summary>
-/// Compares how fast PDF viewers show a document and how much memory they use.
+/// Compares how fast PDF viewers show a document and how much memory they use, and how fast File Explorer
+/// thumbnail handlers for PDFs make a thumbnail of it.
 /// </summary>
 /// <remarks>
 /// Each run starts a viewer on a benchmark document (see <see cref="Documents"/>) and watches its windows until
 /// page 1's magenta band covers --fraction of one (<see cref="WindowCapture"/>), keeping them in front meanwhile. The
 /// machine can be used during a run, though that adds noise. Viewers are closed between runs, and every
 /// document/viewer pair gets --warmup runs that aren't recorded first, so the numbers are warm starts (files in the
-/// OS cache). Viewers take turns, to spread out noise.
+/// OS cache). Viewers take turns, to spread out noise. The thumbnail handlers are measured after the viewers
+/// (see <see cref="Thumbnails"/>).
 /// </remarks>
 internal static class BenchCommand
 {
+    /// <summary>What --apps can name: viewers, and thumbnail handlers. Folio is both.</summary>
+    public static readonly string[] All = [.. Viewer.All.Union(Handler.All)];
+
     public static async Task RunAsync(Options options)
     {
         var settings = new BenchSettings(
@@ -27,9 +32,12 @@ internal static class BenchCommand
             // Low enough for a page at fit-page zoom, high enough that a thumbnail in a sidebar doesn't count.
             MarkerFraction: options.Number("fraction", 0.01));
         if (settings.Runs < 1) throw new ToolException("--runs must be at least 1.");
-        var names = (options.List("apps") ?? Viewer.All)
-            .Select(n => Viewer.All.FirstOrDefault(a => a.Equals(n, StringComparison.OrdinalIgnoreCase))
-                ?? throw new ToolException($"Unknown viewer '{n}'; pick from {string.Join(", ", Viewer.All)}."))
+        // Explorer's Large icons view.
+        int thumbnailSize = (int)options.Number("thumbnail-size", 256);
+        if (thumbnailSize is < 1 or > 10000) throw new ToolException("--thumbnail-size must be from 1 to 10000 pixels.");
+        var names = (options.List("apps") ?? All)
+            .Select(n => All.FirstOrDefault(a => a.Equals(n, StringComparison.OrdinalIgnoreCase))
+                ?? throw new ToolException($"Unknown app '{n}'; pick from {string.Join(", ", All)}."))
             .Distinct().ToList();
         string? folioOption = options.String("folio");
         string folio = folioOption is not null ? Path.GetFullPath(folioOption) : Repo.Path("out", "bench", "folio", "Folio.exe");
@@ -41,19 +49,32 @@ internal static class BenchCommand
         var viewers = new List<Viewer>();
         try
         {
-            foreach (var name in names)
+            foreach (var name in names.Where(n => Viewer.All.Contains(n)))
             {
                 if (Viewer.Find(name, folio) is { } viewer) viewers.Add(viewer);
                 else Console.WriteLine($"{name} isn't installed; skipping it.");
             }
-            if (viewers.Count == 0) throw new ToolException("None of the viewers are installed.");
             CloseRunning(viewers, closeRunning);
-            if (folioOption is null && viewers.Any(v => v.Name == "Folio")) PublishFolio(Path.GetDirectoryName(folio)!);
+            if (folioOption is null && names.Contains("Folio")) PublishFolio(Path.GetDirectoryName(folio)!);
+            // A given Folio build is measured with the handler next to it, as the package has it.
+            string? folioHandler = !names.Contains("Folio") ? null
+                : folioOption is null ? Handler.PublishFolio()
+                : Path.Combine(Path.GetDirectoryName(folio)!, Handler.FolioDll);
+            var handlers = new List<Handler>();
+            foreach (var name in names.Where(n => Handler.All.Contains(n)))
+            {
+                if (Handler.Find(name, folioHandler) is { } handler) handlers.Add(handler);
+                else Console.WriteLine(name == "Folio" ? $"There's no {Handler.FolioDll} next to {folio}; skipping Folio's thumbnails." : $"{name} isn't installed; skipping it.");
+            }
+            if (viewers.Count == 0 && handlers.Count == 0) throw new ToolException("None of the apps are installed.");
 
             var documents = await Documents.PrepareAsync();
             Directory.CreateDirectory(outDir);
-            var runs = await MeasureAsync(viewers, documents, settings, outDir, saveFrames);
+            var runs = viewers.Count > 0 ? await MeasureAsync(viewers, documents, settings, outDir, saveFrames) : [];
+            var (thumbnails, coldThumbnails) = handlers.Count > 0 ? Thumbnails.Measure(handlers, documents, settings, thumbnailSize, outDir) : ([], []);
 
+            var versions = viewers.Where(v => v.Version is not null).ToDictionary(v => v.Name, v => v.Version!);
+            foreach (var handler in handlers.Where(h => h.Version is not null)) versions.TryAdd(handler.Name, handler.Version!);
             var results = new BenchResults
             {
                 Date = DateTimeOffset.Now,
@@ -65,15 +86,19 @@ internal static class BenchCommand
                 SettleSeconds = settings.SettleSeconds,
                 Documents = documents.Select(d => new DocumentInfo(d.Id, d.Name, d.Pages)).ToList(),
                 Results = documents.SelectMany(d => viewers.Select(v => Summary.Of(v.Name, d.Id, runs[(v.Name, d.Id)]))).ToList(),
-                Versions = viewers.Where(v => v.Version is not null).ToDictionary(v => v.Name, v => v.Version!),
+                Versions = versions,
+                ThumbnailSize = handlers.Count > 0 ? thumbnailSize : null,
+                Thumbnails = handlers.Count > 0 ? documents.SelectMany(d => handlers.Select(h => ThumbnailSummary.Of(h.Name, d.Id, thumbnails[(h.Name, d.Id)]))).ToList() : null,
+                ThumbnailColdMs = handlers.Count > 0 ? coldThumbnails : null,
             };
             string json = Path.Combine(outDir, "results.json");
             results.Save(json);
             PrintSummary(results);
             string chart = Path.Combine(outDir, "chart.png");
-            Chart.Render(results, viewers.Select(v => v.Name).ToList(), chart);
+            Chart.Render(results, names, chart);
             Console.WriteLine();
-            Console.WriteLine($"Every run:  {Path.Combine(outDir, "runs.csv")}");
+            if (viewers.Count > 0) Console.WriteLine($"Every run:  {Path.Combine(outDir, "runs.csv")}");
+            if (handlers.Count > 0) Console.WriteLine($"Thumbnails: {Path.Combine(outDir, "thumbnails.csv")}, and each handler's in {Path.Combine(outDir, "thumbnails")}");
             Console.WriteLine($"Medians:    {json}");
             Console.WriteLine($"Chart:      {chart}");
         }
@@ -108,14 +133,8 @@ internal static class BenchCommand
     private static void PublishFolio(string output)
     {
         Console.WriteLine($"Publishing Folio to {output}...");
-        var args = new List<string> { "publish", Repo.Path("src", "Folio", "Folio.csproj"), "-c", "Release", "-o", output, "--nologo", "-v", "quiet" };
-        if (RuntimeInformation.OSArchitecture == Architecture.Arm64) args.Add("-p:Platform=ARM64");
-        // Native AOT finds the linker through vcvarsall.bat, which fails unless vswhere.exe is on PATH.
-        var environment = new Dictionary<string, string>();
-        string installer = Environment.ExpandEnvironmentVariables(@"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer");
-        string path = Environment.GetEnvironmentVariable("PATH") ?? "";
-        if (Directory.Exists(installer) && !path.Contains(installer, StringComparison.OrdinalIgnoreCase)) environment["PATH"] = $"{path};{installer}";
-        if (Repo.Run("dotnet", args, environment: environment).ExitCode != 0)
+        string[] args = RuntimeInformation.OSArchitecture == Architecture.Arm64 ? ["-p:Platform=ARM64"] : [];
+        if (!DotNet.Publish(Repo.Path("src", "Folio", "Folio.csproj"), output, args))
             throw new ToolException("Publishing Folio failed; see above. Or pass --folio <exe> to measure another build.");
     }
 
@@ -193,19 +212,49 @@ internal static class BenchCommand
 
     private static void PrintSummary(BenchResults results)
     {
-        Console.WriteLine();
-        Console.WriteLine($"Medians of {results.Runs} runs. Memory is the private working set of all the viewer's processes once it settled (at most {results.SettleSeconds:0.#} s after page 1 showed).");
-        int width = Math.Max(3, results.Results.Max(r => r.App.Length));
-        foreach (var document in results.Documents)
+        if (results.Results.Count > 0)
         {
             Console.WriteLine();
-            Console.WriteLine(document.Name);
-            Console.WriteLine($"  {"App".PadRight(width)}  {"OK",5}  {"Window",8}  {"Page",8}  {"Page range",13}  {"Memory",8}  {"Peak",8}  {"Commit",8}  Processes");
-            foreach (var s in results.Results.Where(r => r.Document == document.Id))
+            Console.WriteLine($"Medians of {results.Runs} runs. Memory is the private working set of all the viewer's processes once it settled (at most {results.SettleSeconds:0.#} s after page 1 showed).");
+            int width = Math.Max(3, results.Results.Max(r => r.App.Length));
+            foreach (var document in results.Documents)
             {
-                string range = s.PageMinMs is null ? "" : $"{s.PageMinMs:N0}-{s.PageMaxMs:N0}";
-                Console.WriteLine($"  {s.App.PadRight(width)}  {$"{s.Succeeded}/{s.Runs}",5}  {Ms(s.WindowMs),8}  {Ms(s.PageMs),8}  {range,13}  " +
-                    $"{Mb(s.MemoryMB),8}  {Mb(s.PeakMemoryMB),8}  {Mb(s.CommitMB),8}  {s.Processes:0}");
+                Console.WriteLine();
+                Console.WriteLine(document.Name);
+                Console.WriteLine($"  {"App".PadRight(width)}  {"OK",5}  {"Window",8}  {"Page",8}  {"Page range",13}  {"Memory",8}  {"Peak",8}  {"Commit",8}  Processes");
+                foreach (var s in results.Results.Where(r => r.Document == document.Id))
+                {
+                    string range = s.PageMinMs is null ? "" : $"{s.PageMinMs:N0}-{s.PageMaxMs:N0}";
+                    Console.WriteLine($"  {s.App.PadRight(width)}  {$"{s.Succeeded}/{s.Runs}",5}  {Ms(s.WindowMs),8}  {Ms(s.PageMs),8}  {range,13}  " +
+                        $"{Mb(s.MemoryMB),8}  {Mb(s.PeakMemoryMB),8}  {Mb(s.CommitMB),8}  {s.Processes:0}");
+                }
+            }
+        }
+
+        if (results.Thumbnails is { Count: > 0 } thumbnails)
+        {
+            Console.WriteLine();
+            Console.WriteLine($"File Explorer thumbnails at {results.ThumbnailSize} px, medians of {results.Runs} runs. Time is from creating the handler to getting the bitmap.");
+            Console.WriteLine("CPU is the host's and that of processes it started, which Windows counts in scheduler ticks (about 16 ms).");
+            int width = Math.Max(7, thumbnails.Max(t => t.App.Length));
+            foreach (var document in results.Documents)
+            {
+                Console.WriteLine();
+                Console.WriteLine(document.Name);
+                Console.WriteLine($"  {"Handler".PadRight(width)}  {"OK",5}  {"Time",10}  {"Range",15}  {"CPU",8}  Processes  Stream calls  {"Read",7}  Bitmap");
+                foreach (var t in thumbnails.Where(t => t.Document == document.Id))
+                {
+                    string range = t.MinMs is null ? "" : $"{t.MinMs:N1}-{t.MaxMs:N1}";
+                    string read = t.ReadMB is null ? "-" : $"{t.ReadMB:N1} MB";
+                    Console.WriteLine($"  {t.App.PadRight(width)}  {$"{t.Succeeded}/{t.Runs}",5}  {(t.Ms is null ? "-" : $"{t.Ms:N1} ms"),10}  {range,15}  {Ms(t.CpuMs),8}  " +
+                        $"{t.Processes,9:0}  {t.StreamCalls,12:N0}  {read,7}  {(t.Width is null ? "-" : $"{t.Width}x{t.Height}")}");
+                }
+            }
+            if (results.ThumbnailColdMs is { Count: > 0 } cold)
+            {
+                Console.WriteLine();
+                Console.WriteLine("Left out of the medians, thumbnails from a host that had just started, which also loaded the handler: " +
+                    string.Join("; ", cold.Select(c => $"{c.Key} {string.Join(", ", c.Value.Select(ms => $"{ms:N0} ms"))}")) + ".");
             }
         }
 
@@ -214,7 +263,7 @@ internal static class BenchCommand
     }
 }
 
-/// <summary>Redraws the chart of an earlier bench run, for example with fewer viewers for the README.</summary>
+/// <summary>Redraws the chart of an earlier bench run, for example with fewer apps for the README.</summary>
 internal static class ChartCommand
 {
     public static Task RunAsync(Options options)
@@ -222,7 +271,7 @@ internal static class ChartCommand
         if (options.Positional.Count != 1) throw new ToolException("Usage: chart <results.json> [--apps Folio,Edge,Acrobat] [--out <png>]");
         string json = Path.GetFullPath(options.Positional[0]);
         var results = BenchResults.Load(json);
-        var available = results.Results.Select(r => r.App).Distinct().ToList();
+        var available = results.Results.Select(r => r.App).Concat(results.Thumbnails?.Select(t => t.App) ?? []).Distinct().ToList();
         var apps = options.List("apps")?
             .Select(a => available.FirstOrDefault(x => x.Equals(a, StringComparison.OrdinalIgnoreCase))
                 ?? throw new ToolException($"{json} has no results for {a}; it has {string.Join(", ", available)}."))

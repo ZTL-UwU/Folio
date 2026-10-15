@@ -12,9 +12,10 @@ internal sealed class Options
 {
     private static readonly Dictionary<string, string[]> Known = new()
     {
-        ["bench"] = ["apps", "runs", "warmup", "settle", "timeout", "cooldown", "fraction", "folio", "out", "save-frames", "close-running"],
+        ["bench"] = ["apps", "runs", "warmup", "settle", "timeout", "cooldown", "fraction", "folio", "thumbnail-size", "out", "save-frames", "close-running"],
         ["chart"] = ["apps", "out"],
         ["icon"] = [],
+        ["thumbnail-host"] = [],
     };
 
     private readonly Dictionary<string, string?> _named = new(StringComparer.OrdinalIgnoreCase);
@@ -127,6 +128,21 @@ internal static class Repo
         process.BeginErrorReadLine();
         process.WaitForExit();
         return (process.ExitCode, output.ToString());
+    }
+}
+
+internal static class DotNet
+{
+    /// <summary>Publishes a project of this checkout in Release, with Native AOT where the project uses it.</summary>
+    public static bool Publish(string project, string output, IEnumerable<string> args)
+    {
+        // Native AOT finds the linker through vcvarsall.bat, which fails unless vswhere.exe is on PATH.
+        var environment = new Dictionary<string, string>();
+        string installer = Environment.ExpandEnvironmentVariables(@"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer");
+        string path = Environment.GetEnvironmentVariable("PATH") ?? "";
+        if (Directory.Exists(installer) && !path.Contains(installer, StringComparison.OrdinalIgnoreCase)) environment["PATH"] = $"{path};{installer}";
+        string[] publish = ["publish", project, "-c", "Release", "-o", output, "--nologo", "-v", "quiet", .. args];
+        return Repo.Run("dotnet", publish, environment: environment).ExitCode == 0;
     }
 }
 

@@ -9,4 +9,8 @@
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <ApplicationManifest>app.manifest</ApplicationManifest>
   </PropertyGroup>
+  <ItemGroup>
+    <!-- The thumbnail benchmark puts its pdfium.dll next to Folio's thumbnail handler, for this process's architecture. The same version as src/Folio. -->
+    <PackageReference Include="bblanchon.PDFium.Win32" Version="156.0.8076" />
+  </ItemGroup>
 </Project>
