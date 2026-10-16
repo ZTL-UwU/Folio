@@ -63,6 +63,11 @@ public sealed partial class MainWindow : Window
     /// until another is picked.
     /// </summary>
     private bool _searchResultAtTop;
+    /// <summary>
+    /// The results listed are the last search's: they stay until the new one lists its own, so the list and the
+    /// highlights don't flash empty while it starts.
+    /// </summary>
+    private bool _searchResultsStale;
     private string _searchQuery = "";
     /// <summary>The options <see cref="_searchQuery"/> was searched with.</summary>
     private SearchOptions _searchOptions;
@@ -1268,23 +1273,29 @@ public sealed partial class MainWindow : Window
         if (string.IsNullOrEmpty(sender.Text)) StartSearch("");
         else
         {
-            // Searching takes milliseconds once the pages are read, so it can keep up with typing. The shorter the
-            // query, the more it matches and the likelier it's a word still being typed, so the longer it waits.
-            int length = sender.Text.Trim().Length;
-            var (delay, max) = length < 3 ? (400.0, 450.0) : length < 5 ? (150.0, 180.0) : (50.0, 80.0);
-            // Those suit about two million characters of text (a 1,000-page document). The results, and the time to
-            // list them, grow with the text, so scale the wait with it, up to a limit.
-            if (_document?.EstimatedTextLength is { } chars) delay = Math.Min(delay * Math.Max(chars / 2e6, 0.25), max);
-            _searchDebounce.Interval = TimeSpan.FromMilliseconds(delay);
+            _searchDebounce.Interval = TimeSpan.FromMilliseconds(SearchDelay(sender.Text));
             _searchDebounce.Start();
         }
+    }
+
+    /// <summary>How long to wait after a key is typed before searching for <paramref name="text"/>, in milliseconds.</summary>
+    private double SearchDelay(string text)
+    {
+        // Searching takes milliseconds once the pages are read, so it can keep up with typing. The shorter the
+        // query, the more it matches and the likelier it's a word still being typed, so the longer it waits.
+        int length = text.Trim().Length;
+        var (delay, max) = length < 3 ? (200.0, 225.0) : length < 5 ? (75.0, 90.0) : (25.0, 40.0);
+        // Those suit about two million characters of text (a 1,000-page document). The results, and the time to
+        // list them, grow with the text, so scale the wait with it, up to a limit.
+        if (_document?.EstimatedTextLength is { } chars) delay = Math.Min(delay * Math.Max(chars / 2e6, 0.25), max);
+        return delay;
     }
 
     private void OnSearchSubmitted(AutoSuggestBox sender, AutoSuggestBoxQuerySubmittedEventArgs args)
     {
         _searchDebounce.Stop();
         // Enter submits the query whether or not Shift is down, so Shift+Enter is told apart here.
-        if (args.QueryText == _searchQuery && _searchItems.Count > 0) MoveSearch(IsShiftDown() ? -1 : +1);
+        if (args.QueryText == _searchQuery && _searchItems.Count > 0 && !_searchResultsStale) MoveSearch(IsShiftDown() ? -1 : +1);
         else StartSearch(args.QueryText);
     }
 
@@ -1308,11 +1319,8 @@ public sealed partial class MainWindow : Window
     private async void StartSearch(string query)
     {
         _searchCts?.Cancel();
-        _searchItems.Clear();
-        _searchIndex = -1;
-        _searchResultAtTop = false;
-        Viewer.ClearSearch();
         _searchQuery = query.Trim();
+        if (_document is null || _searchQuery.Length == 0) ClearSearchResults();
         if (_document is null) return;
         ShowSearchPanel();
         if (string.IsNullOrEmpty(_searchQuery))
@@ -1324,35 +1332,43 @@ public sealed partial class MainWindow : Window
         var document = _document;
         SearchStatus.Text = "Searching…";
         var options = _searchOptions = CurrentSearchOptions();
+        _searchResultsStale = true;
         int start = Viewer.CurrentPage;
         // Results wait in pending to be listed in batches.
-        int found = 0;
+        int found = 0, fromStart = 0;
+        // Rows a full list shows: a list item is at least 40 high.
+        int screenful = (int)(SearchResultList.ActualHeight / 40) + 1;
         var pending = new List<SearchItem>();
-        long yielded = Environment.TickCount64, listed = yielded;
+        long started = Environment.TickCount64, yielded = started, listed = started;
         try
         {
-            for (int i = 0; i < document.PageCount; i++)
+            // Pages are searched on another thread; those it has searched are taken here without waiting.
+            await foreach (var (i, hits) in document.Search(_searchQuery, options, cts.Token).ReadAllAsync(cts.Token))
             {
-                string text = await document.GetSearchTextAsync(i, cts.Token);
                 if (cts.IsCancellationRequested) return;
-                var hits = TextSearch.Find(text, i, _searchQuery, options);
                 if (hits.Count > 0)
                 {
                     string label = document.GetPageLabel(i);
                     foreach (var hit in hits) pending.Add(new SearchItem(hit, label));
                     found += hits.Count;
-                    Viewer.AddSearchResults(hits);
+                    if (i >= start) fromStart += hits.Count;
                 }
-                // The first result from the current page on is listed and shown at once, the rest every so often.
-                bool listing = _searchIndex < 0 && i >= start && hits.Count > 0 || Environment.TickCount64 - listed > 100;
+                // Each change to the list has it lay out its rows again, which takes about as long as searching pages
+                // already read, so results are listed once, when the search is done. While pages are still being
+                // read, they're listed every so often, the first time once there are enough from the current page on
+                // to fill the list below the one shown: listed alone, it would show at the bottom, then jump to the top.
+                long now = Environment.TickCount64;
+                bool listing = _searchResultsStale || _searchIndex < 0
+                    ? now - started > 100 && (fromStart >= screenful || now - listed > 300)
+                    : now - listed > 250;
                 if (listing)
                 {
                     ListSearchResults(pending, start);
                     listed = Environment.TickCount64;
                 }
                 SearchStatus.Text = ResultText(found) + "…";
-                // Pages read by an earlier search come back at once; let the window draw and take input now and then,
-                // and after updating the list, which takes it a while.
+                // Pages read by an earlier search are searched faster than they're listed; let the window draw and take
+                // input now and then, and after updating the list, which takes it a while.
                 if (listing || Environment.TickCount64 - yielded > 30)
                 {
                     await YieldToWindowAsync();
@@ -1376,9 +1392,11 @@ public sealed partial class MainWindow : Window
     /// </summary>
     private void ListSearchResults(List<SearchItem> pending, int start)
     {
+        if (_searchResultsStale) ClearSearchResults();
         if (pending.Count == 0) return;
         int first = _searchItems.Count;
         _searchItems.AddRange(pending);
+        Viewer.AddSearchResults(pending.Select(item => item.Hit));
         pending.Clear();
         if (_searchIndex >= 0)
         {
@@ -1460,11 +1478,8 @@ public sealed partial class MainWindow : Window
         _searchTextCts?.Cancel();
         _searchTextCts = null;
         _searchDebounce.Stop();
-        _searchItems.Clear();
-        _searchIndex = -1;
-        _searchResultAtTop = false;
+        ClearSearchResults();
         _searchQuery = "";
-        Viewer.ClearSearch();
         if (clearText) SearchBox.Text = "";
         SearchStatus.Text = "";
         SearchPanel.Visibility = Visibility.Collapsed;
@@ -1474,6 +1489,15 @@ public sealed partial class MainWindow : Window
         if (_sidebarOpen) SidebarColumn.Width = new GridLength(SidebarWidth());
         if (SidebarSelector.SelectedItem is { } tab) ShowSidebarPage(tab);
         if (_document is not null && !AppState.Preferences.SidebarOpen && _sidebarOpen) SetSidebarOpen(false, persist: false);
+    }
+
+    private void ClearSearchResults()
+    {
+        _searchItems.Clear();
+        _searchIndex = -1;
+        _searchResultAtTop = false;
+        _searchResultsStale = false;
+        Viewer.ClearSearch();
     }
 
     private void SelectSearchResult(int index)
@@ -1509,7 +1533,8 @@ public sealed partial class MainWindow : Window
         if (args.ItemContainer.ContentTemplateRoot is not Grid grid || grid.Children[0] is not TextBlock text) return;
         text.Inlines.Clear();
         var hit = item.Hit;
-        text.Inlines.Add(new Run { Text = (hit.Before.Length > 0 ? "…" : "") + hit.Before });
+        string before = hit.Before;
+        text.Inlines.Add(new Run { Text = (before.Length > 0 ? "…" : "") + before });
         text.Inlines.Add(new Run { Text = hit.Match, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
         text.Inlines.Add(new Run { Text = hit.After });
     }

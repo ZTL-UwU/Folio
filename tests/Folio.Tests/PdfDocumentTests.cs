@@ -246,6 +246,19 @@ public sealed class PdfDocumentTests : IDisposable
     }
 
     [Fact]
+    public async Task Search_PassesOnEveryPagesHits_InOrder()
+    {
+        string path = _temp.Write("text.pdf", TestPdf.Create(pages: 3, text: "a search engine"));
+        using var document = await PdfDocument.OpenAsync(path);
+
+        var pages = new List<(int Page, int Hits)>();
+        await foreach (var (page, hits) in document.Search("search", SearchOptions.None, CancellationToken.None).ReadAllAsync())
+            pages.Add((page, hits.Count));
+
+        Assert.Equal([(0, 1), (1, 1), (2, 1)], pages);
+    }
+
+    [Fact]
     public async Task SearchText_IsKept_WhenReadAheadOrShown()
     {
         string path = _temp.Write("text.pdf", TestPdf.Create(pages: 3, text: "Some text"));

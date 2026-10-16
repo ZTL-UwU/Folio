@@ -150,9 +150,16 @@ public sealed class SearchHit
     public required int PageIndex { get; init; }
     public required int CharIndex { get; init; }
     public required int Length { get; init; }
-    public string Before { get; init; } = "";
-    public string Match { get; init; } = "";
-    public string After { get; init; } = "";
+    /// <summary>The page's search text, which the context below is read from.</summary>
+    public required string PageText { get; init; }
+    /// <summary>Whether hyphen markers are left out of the context, as they were out of the match.</summary>
+    public bool JoinHyphenated { get; init; }
+
+    // Read when a result is shown rather than for every hit: a short query has hundreds of thousands of them,
+    // and making their context took most of the search's time and memory.
+    public string Before => TextSearch.Context(PageText, Math.Max(0, CharIndex - 40), CharIndex, true, JoinHyphenated);
+    public string Match => TextSearch.Context(PageText, CharIndex, CharIndex + Length, false, JoinHyphenated);
+    public string After => TextSearch.Context(PageText, CharIndex + Length, Math.Min(PageText.Length, CharIndex + Length + 60), false, JoinHyphenated);
 }
 
 public sealed class DocumentInfo

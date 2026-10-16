@@ -52,15 +52,7 @@ internal static class TextSearch
                 continue;
             }
             int start = map[at], end = map[after - 1] + 1;
-            hits.Add(new SearchHit
-            {
-                PageIndex = pageIndex,
-                CharIndex = start,
-                Length = end - start,
-                Before = Context(text, Math.Max(0, start - 40), start, true, joined),
-                Match = Context(text, start, end, false, joined),
-                After = Context(text, end, Math.Min(text.Length, end + 60), false, joined),
-            });
+            hits.Add(new SearchHit { PageIndex = pageIndex, CharIndex = start, Length = end - start, PageText = text, JoinHyphenated = joined });
             at = after;
         }
         return hits;
@@ -117,7 +109,7 @@ internal static class TextSearch
     private static bool IsHyphenMarker(char c) => c is '\u0002' or '\uFFFE' or '\u00AD';
 
     /// <summary>Text around a hit for the results list, on one line, with hyphen markers left out of joined words.</summary>
-    private static string Context(string text, int start, int end, bool trimStart, bool joined)
+    public static string Context(string text, int start, int end, bool trimStart, bool joined)
     {
         var sb = new StringBuilder(Math.Max(0, end - start));
         bool lastSpace = false;
