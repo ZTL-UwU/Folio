@@ -15,8 +15,13 @@ internal static class AppPackage
     /// <summary>True when running from the MSIX package.</summary>
     public static readonly bool IsPackaged = IsRunningPackaged();
 
-    /// <summary>Settings, recent files, thumbnails and the error log.</summary>
-    public static string DataFolder => IsPackaged
+    /// <summary>
+    /// Settings, recent files, thumbnails and the error log. FOLIO_DATA_FOLDER puts them elsewhere, as the
+    /// benchmark does so that a page left open in the user's Folio doesn't get restored, and its runs aren't recorded.
+    /// </summary>
+    public static string DataFolder => Environment.GetEnvironmentVariable("FOLIO_DATA_FOLDER") is { Length: > 0 } folder
+        ? Path.GetFullPath(folder)
+        : IsPackaged
         ? ApplicationData.Current.LocalFolder.Path
         : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Folio");
 

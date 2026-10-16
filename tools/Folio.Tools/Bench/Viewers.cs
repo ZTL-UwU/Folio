@@ -72,7 +72,11 @@ internal sealed class Viewer : IDisposable
         switch (name)
         {
             case "Folio":
-                return new Viewer { Name = name, Exe = folio, Arguments = Quote, Images = ["Folio"], OneInstancePerCopy = true };
+                // Settings of its own, so it neither restores the page a benchmark document was left on nor lists the
+                // documents as recent in the installed copy. Folio is started through the shell, so it gets the folder
+                // from this process's environment.
+                Environment.SetEnvironmentVariable("FOLIO_DATA_FOLDER", scratch);
+                return new Viewer { Name = name, Exe = folio, Arguments = Quote, Images = ["Folio"], OneInstancePerCopy = true, Scratch = scratch };
 
             case "Edge":
                 if (Apps.Edge() is not { } edge) return null;
