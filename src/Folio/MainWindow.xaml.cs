@@ -1299,7 +1299,8 @@ public sealed partial class MainWindow : Window
     {
         _searchDebounce.Stop();
         // Enter submits the query whether or not Shift is down, so Shift+Enter is told apart here.
-        if (args.QueryText == _searchQuery && _searchItems.Count > 0 && !_searchResultsStale) MoveSearch(IsShiftDown() ? -1 : +1);
+        // _searchQuery is trimmed, so a space typed after the query doesn't make Enter search again instead of moving on.
+        if (args.QueryText.Trim() == _searchQuery && _searchItems.Count > 0 && !_searchResultsStale) MoveSearch(IsShiftDown() ? -1 : +1);
         else StartSearch(args.QueryText);
     }
 
