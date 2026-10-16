@@ -1,0 +1,49 @@
+name: Crowdin
+
+# Uploads the English strings to Crowdin when they change on main, and opens (or updates) a pull request on the
+# l10n branch with the translations. Configured by crowdin.yml at the repo root.
+on:
+  push:
+    branches: [main]
+    paths: ['src/Folio/Strings/en-US/**']
+  schedule:
+    - cron: '0 3 * * 1'
+  workflow_dispatch:
+    inputs:
+      upload_translations:
+        description: Also upload the translations in the repo, replacing Crowdin's (for the first sync)
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: crowdin
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    if: github.repository == 'ZTL-UwU/Folio'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - uses: crowdin/github-action@72955432d4aa4f6dd64cf17eeb88dd34d6ba064c # v3.4.0
+        with:
+          upload_sources: true
+          upload_translations: ${{ inputs.upload_translations || false }}
+          download_translations: true
+          localization_branch_name: l10n
+          commit_message: 'chore(i18n): update translations'
+          create_pull_request: true
+          pull_request_title: 'chore(i18n): update translations'
+          pull_request_body: Translations from [Crowdin](https://crowdin.com), made by the Crowdin workflow.
+          pull_request_base_branch_name: main
+        env:
+          # Pull requests opened with the default GITHUB_TOKEN don't start the Build workflow, so the tests that
+          # check the translations wouldn't run; CROWDIN_GITHUB_TOKEN (a personal access token) avoids that.
+          GITHUB_TOKEN: ${{ secrets.CROWDIN_GITHUB_TOKEN || secrets.GITHUB_TOKEN }}
+          CROWDIN_PROJECT_ID: ${{ secrets.CROWDIN_PROJECT_ID }}
+          CROWDIN_PERSONAL_TOKEN: ${{ secrets.CROWDIN_PERSONAL_TOKEN }}

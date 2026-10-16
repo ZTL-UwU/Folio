@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Runtime.CompilerServices;
 using System.Text.RegularExpressions;
 using System.Xml.Linq;
@@ -34,6 +35,16 @@ public sealed partial class StringsTests
         Assert.Empty(translated.Keys.Except(English.Keys));
         foreach (var (name, text) in English)
             Assert.True(Placeholders(text).SetEquals(Placeholders(translated[name])), $"{language}: {name} has other placeholders than in English");
+    }
+
+    /// <summary>LanguageTag sets the UI culture, so it's the folder's language, or one of its regions (fr-FR in fr).</summary>
+    [Theory]
+    [MemberData(nameof(Translations))]
+    public void Translation_HasItsOwnLanguageTag(string language)
+    {
+        var folder = CultureInfo.GetCultureInfo(language);
+        var tagged = CultureInfo.GetCultureInfo(Load(language)["LanguageTag"]);
+        Assert.True(tagged.Name == folder.Name || tagged.Parent.Name == folder.Name, $"{language}: LanguageTag is {tagged.Name}");
     }
 
     [Fact]

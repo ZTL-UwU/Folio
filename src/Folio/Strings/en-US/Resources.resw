@@ -14,6 +14,7 @@
   </resheader>
   <data name="LanguageTag" xml:space="preserve">
     <value>en-US</value>
+    <comment>Not shown: the culture code of your translation, such as fr-FR or de-DE (Folio formats text for it).</comment>
   </data>
   <data name="SettingsTitle.Text" xml:space="preserve">
     <value>Settings</value>
