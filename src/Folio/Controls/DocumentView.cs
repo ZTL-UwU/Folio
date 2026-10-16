@@ -1103,6 +1103,13 @@ public sealed partial class DocumentView : UserControl
         return sb.ToString();
     }
 
+    /// <summary>The selected text as a search query: on one line, and no longer than a query needs to be.</summary>
+    public async Task<string> GetSelectedQueryAsync()
+    {
+        var text = (await GetSelectedTextAsync()).ReplaceLineEndings(" ").Trim();
+        return text.Length > 200 ? text[..200] : text;
+    }
+
     public async void CopySelection()
     {
         string text = await GetSelectedTextAsync();
@@ -1960,8 +1967,8 @@ public sealed partial class DocumentView : UserControl
         search.Click += async (_, _) =>
         {
             flyout.Hide();
-            var text = (await GetSelectedTextAsync()).ReplaceLineEndings(" ").Trim();
-            if (text.Length > 0) SearchRequested?.Invoke(this, text.Length > 200 ? text[..200] : text);
+            var text = await GetSelectedQueryAsync();
+            if (text.Length > 0) SearchRequested?.Invoke(this, text);
         };
         flyout.SecondaryCommands.Add(search);
         ShowArrowWhenOpened(flyout);

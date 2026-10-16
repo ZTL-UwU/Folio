@@ -2031,7 +2031,7 @@ public sealed partial class MainWindow : Window
             || key == VirtualKey.W && !AppState.Preferences.RememberRecent;
     }
 
-    private void FocusSearch()
+    private async void FocusSearch()
     {
         if (_settingsOpen) return;
         if (_document is null)
@@ -2041,6 +2041,14 @@ public sealed partial class MainWindow : Window
             RecentSearchBox.Focus(FocusState.Keyboard);
             if (RecentSearchBox.FindDescendant<TextBox>() is { } recentBox) recentBox.SelectAll();
             return;
+        }
+        // Selected text becomes the query, as in browsers.
+        if (Viewer.HasSelection && await Viewer.GetSelectedQueryAsync() is { Length: > 0 } selected)
+        {
+            if (_document is null || _settingsOpen) return;
+            SearchBox.Text = selected;
+            // Searching again for the same query would move back to the page's first result.
+            if (selected != _searchQuery || CurrentSearchOptions() != _searchOptions || _searchResultsStale) StartSearch(selected);
         }
         ShowSearchPanel();
         SearchBox.UpdateLayout();
