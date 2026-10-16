@@ -39,14 +39,14 @@ internal static class TextSearch
         bool wholeWords = options.HasFlag(SearchOptions.WholeWords), joined = options.HasFlag(SearchOptions.JoinHyphenated);
         // Word boundaries are where double-click selection finds them, in the characters as they were: folding makes
         // an en dash a hyphen and a curly apostrophe a straight one, which count as part of a word.
-        bool checkStart = wholeWords && PageText.IsWordCodePoint(query[queryMap[lead]]);
-        bool checkEnd = wholeWords && PageText.IsWordCodePoint(query[queryMap[trail - 1]]);
+        bool checkStart = wholeWords && IsWordChar(query[queryMap[lead]]);
+        bool checkEnd = wholeWords && IsWordChar(query[queryMap[trail - 1]]);
         int at = 0;
         while (hits.Count < MaxHitsPerPage && (at = folded.IndexOf(pattern, at, StringComparison.Ordinal)) >= 0)
         {
             int after = at + pattern.Length;
-            if (checkStart && at > 0 && PageText.IsWordCodePoint(text[map[at - 1]]) ||
-                checkEnd && after < folded.Length && PageText.IsWordCodePoint(text[map[after]]))
+            if (checkStart && at > 0 && IsWordChar(text[map[at - 1]]) ||
+                checkEnd && after < folded.Length && IsWordChar(text[map[after]]))
             {
                 at++;
                 continue;
@@ -108,6 +108,16 @@ internal static class TextSearch
 
     private static bool IsHyphenMarker(char c) => c is '\u0002' or '\uFFFE' or '\u00AD';
 
+    /// <summary>Whether a character is part of a word, a hyphen marker counting as the hyphen it stands for.</summary>
+    private static bool IsWordChar(char c) => IsHyphenMarker(c) || PageText.IsWordCodePoint(c);
+
+    /// <summary>Whether the line break at <paramref name="index"/> follows a hyphen marker, so is left out of the joined word.</summary>
+    private static bool FollowsHyphenMarker(string text, int index)
+    {
+        while (index > 0 && text[index - 1] is '\r' or '\n') index--;
+        return index > 0 && IsHyphenMarker(text[index - 1]);
+    }
+
     /// <summary>Text around a hit for the results list, on one line, with hyphen markers left out of joined words.</summary>
     public static string Context(string text, int start, int end, bool trimStart, bool joined)
     {
@@ -121,6 +131,8 @@ internal static class TextSearch
                 if (joined) continue;
                 c = '-';
             }
+            // As Fold leaves it out, so that a joined word shows as one.
+            if (joined && c is '\r' or '\n' && FollowsHyphenMarker(text, i)) continue;
             // Bidi overrides would reorder the rest of the result row, see LaunchPolicy.StripBidiControls.
             if (c is '\0' or (>= '\u202A' and <= '\u202E') or (>= '\u2066' and <= '\u2069')) continue;
             if (c <= ' ' || c == '\u00A0')

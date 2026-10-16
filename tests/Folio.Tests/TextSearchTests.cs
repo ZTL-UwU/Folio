@@ -49,6 +49,10 @@ public sealed class TextSearchTests
         var hit = Assert.Single(Find("an exam\u0002ple of", "exam-", options: notJoined));
         Assert.Equal((3, 8), (hit.CharIndex, hit.CharIndex + hit.Length));
         Assert.Equal("exam-", hit.Match);
+        // Like a hyphen, the marker is part of the word.
+        Assert.Empty(Find("an exam\u0002ple of", "ple", wholeWords: true, options: notJoined));
+        Assert.Empty(Find("an exam￾ple of", "ple", wholeWords: true, options: notJoined));
+        Assert.Empty(Find("an exam-ple of", "ple", wholeWords: true, options: notJoined));
     }
 
     [Fact]
@@ -112,5 +116,10 @@ public sealed class TextSearchTests
         Assert.Equal("first line the ", hit.Before);
         Assert.Equal("example", hit.Match);
         Assert.Equal(" next line", hit.After);
+        // The line break after the marker is left out too.
+        Assert.Equal("document", Assert.Single(Find("a docu￾\r\nment here", "document")).Match);
+        var end = Assert.Single(Find("a docu￾\r\nment here", "ment"));
+        Assert.Equal("a docu", end.Before);
+        Assert.Equal("ment", end.Match);
     }
 }

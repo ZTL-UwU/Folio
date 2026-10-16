@@ -164,6 +164,10 @@ public sealed partial class MainWindow : Window
         Root.Loaded += (_, _) => _loaded.TrySetResult();
         SearchBox.AddHandler(UIElement.KeyDownEvent, new KeyEventHandler(OnSearchKeyDown), true);
         RecentSearchBox.AddHandler(UIElement.KeyDownEvent, new KeyEventHandler(OnRecentSearchKeyDown), true);
+        // Once the results list is scrolled, results listed after that leave it where it is.
+        SearchResultList.AddHandler(UIElement.PointerWheelChangedEvent, new PointerEventHandler((_, _) => _searchResultAtTop = false), true);
+        SearchResultList.AddHandler(UIElement.PointerPressedEvent, new PointerEventHandler((_, _) => _searchResultAtTop = false), true);
+        SearchResultList.AddHandler(UIElement.KeyDownEvent, new KeyEventHandler((_, _) => _searchResultAtTop = false), true);
         SetupAccelerators();
         // AppState is static: unsubscribed in OnWindowClosed, or it would keep every closed window alive.
         _recentChanged = (_, _) => DispatcherQueue.TryEnqueue(RefreshRecent);
@@ -1357,10 +1361,12 @@ public sealed partial class MainWindow : Window
                 // already read, so results are listed once, when the search is done. While pages are still being
                 // read, they're listed every so often, the first time once there are enough from the current page on
                 // to fill the list below the one shown: listed alone, it would show at the bottom, then jump to the top.
+                // Failing that, they're listed a moment after the current page is searched, not before: those from
+                // the start of the document would show with none selected. Until then the last search's stay.
                 long now = Environment.TickCount64;
-                bool listing = _searchResultsStale || _searchIndex < 0
-                    ? now - started > 100 && (fromStart >= screenful || now - listed > 300)
-                    : now - listed > 250;
+                bool listing = pending.Count > 0 && (_searchResultsStale || _searchIndex < 0
+                    ? i >= start && now - started > 100 && (fromStart >= screenful || now - listed > 300)
+                    : now - listed > 250);
                 if (listing)
                 {
                     ListSearchResults(pending, start);
@@ -1514,7 +1520,8 @@ public sealed partial class MainWindow : Window
 
     private void MoveSearch(int direction)
     {
-        if (_searchItems.Count == 0) return;
+        // The results listed are the last search's until this one lists its own.
+        if (_searchItems.Count == 0 || _searchResultsStale) return;
         int next = _searchIndex < 0 ? 0 : (_searchIndex + direction + _searchItems.Count) % _searchItems.Count;
         SelectSearchResult(next);
     }
@@ -1965,6 +1972,8 @@ public sealed partial class MainWindow : Window
         Add(VirtualKey.P, Ctrl, () => OnPrint(this, new RoutedEventArgs()), true);
         Add(VirtualKey.P, Ctrl | Shift, () => _ = PrintWithSystemDialogAsync(), true);
         Add(VirtualKey.F, Ctrl, FocusSearch, true);
+        Add(VirtualKey.F3, None, () => MoveSearch(+1), true);
+        Add(VirtualKey.F3, Shift, () => MoveSearch(-1), true);
         Add(VirtualKey.G, Ctrl, () => MoveSearch(+1), true);
         Add(VirtualKey.G, Ctrl | Shift, () => MoveSearch(-1), true);
         Add(VirtualKey.Add, Ctrl, Viewer.ZoomIn, true);

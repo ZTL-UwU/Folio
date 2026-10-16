@@ -824,7 +824,7 @@
                             AutomationProperties.Name="Previous result"
                             Click="OnPreviousResult"
                             Style="{StaticResource ToolbarButtonStyle}"
-                            ToolTipService.ToolTip="Previous result (Shift+Enter)">
+                            ToolTipService.ToolTip="Previous result (Shift+F3)">
                             <FontIcon FontSize="14" Glyph="&#xE70E;" />
                         </Button>
                         <Button
@@ -832,7 +832,7 @@
                             AutomationProperties.Name="Next result"
                             Click="OnNextResult"
                             Style="{StaticResource ToolbarButtonStyle}"
-                            ToolTipService.ToolTip="Next result (Enter)">
+                            ToolTipService.ToolTip="Next result (F3)">
                             <FontIcon FontSize="14" Glyph="&#xE70D;" />
                         </Button>
                     </Grid>
