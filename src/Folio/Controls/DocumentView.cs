@@ -249,6 +249,7 @@ public sealed partial class DocumentView : UserControl
         _inverted = prefs.Inverted;
         _zoomMode = restore?.ZoomMode ?? ZoomMode.FitWidth;
         _rotation = restore?.Rotation ?? 0;
+        UpdateHostAlignment();
         int page = Math.Clamp(restore?.Page ?? 0, 0, Math.Max(0, document.PageCount - 1));
         _currentPage = page;
         UpdateAutomationName();
@@ -264,6 +265,7 @@ public sealed partial class DocumentView : UserControl
     {
         if (_continuous == value) return;
         _continuous = value;
+        UpdateHostAlignment();
         int page = _currentPage;
         _currentRow = RowIndexOf(page);
         Relayout();
@@ -452,7 +454,6 @@ public sealed partial class DocumentView : UserControl
             _dual = false;
             _scroller.VerticalScrollBarVisibility = ScrollBarVisibility.Hidden;
             _scroller.HorizontalScrollBarVisibility = ScrollBarVisibility.Hidden;
-            _host.VerticalAlignment = VerticalAlignment.Center;
             _root.Background = new SolidColorBrush(Colors.Black);
             ClearSelection();
         }
@@ -462,10 +463,10 @@ public sealed partial class DocumentView : UserControl
             (_continuous, _dual, _zoomMode, double zoom) = _beforePresentation;
             _scroller.VerticalScrollBarVisibility = ScrollBarVisibility.Auto;
             _scroller.HorizontalScrollBarVisibility = ScrollBarVisibility.Auto;
-            _host.VerticalAlignment = VerticalAlignment.Top;
             _root.Background = null;
             _lastZoom = zoom;
         }
+        UpdateHostAlignment();
         foreach (var view in _views.Values) view.Release();
         _views.Clear();
         _host.Children.Clear();
@@ -547,6 +548,10 @@ public sealed partial class DocumentView : UserControl
     private double SideMargin => _presentation ? 0 : 48;
     private double TopMargin => _presentation ? 0 : 28;
     private double Spacing => _presentation ? 0 : 14;
+
+    /// <summary>A page shown on its own sits in the middle of the view when it's smaller than it.</summary>
+    private void UpdateHostAlignment() =>
+        _host.VerticalAlignment = !_continuous || _presentation ? VerticalAlignment.Center : VerticalAlignment.Top;
 
     private Size LayoutSize(int index)
     {
@@ -730,18 +735,13 @@ public sealed partial class DocumentView : UserControl
     private void OnViewChanged(object? sender, ScrollViewerViewChangedEventArgs e)
     {
         float zoom = _scroller.ZoomFactor;
+        // The user zoomed with a gesture or Ctrl+wheel. Both animate, so check every step: by the
+        // final view, _lastZoom has caught up.
+        if (_pendingZoom is null && Math.Abs(zoom - _lastZoom) > 0.0001) _zoomMode = ZoomMode.Custom;
         if (!e.IsIntermediate)
         {
             _pendingContentX = _pendingContentY = null;
-            if (_pendingZoom is not null)
-            {
-                _pendingZoom = null;
-            }
-            else if (Math.Abs(zoom - _lastZoom) > 0.001 && _zoomMode != ZoomMode.Custom)
-            {
-                // The user zoomed with a gesture or Ctrl+wheel.
-                _zoomMode = ZoomMode.Custom;
-            }
+            _pendingZoom = null;
         }
         if (Math.Abs(zoom - _lastZoom) > 0.0001)
         {
