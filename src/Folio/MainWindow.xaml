@@ -353,6 +353,7 @@
                     PlaceholderText="Search recent documents"
                     QueryIcon="Find"
                     QuerySubmitted="OnRecentSearchSubmitted"
+                    TextBoxStyle="{StaticResource SearchTextBoxStyle}"
                     TextChanged="OnRecentSearchTextChanged" />
                 <StackPanel
                     Grid.Column="3"
@@ -779,6 +780,7 @@
                         PlaceholderText="Search"
                         QueryIcon="Find"
                         QuerySubmitted="OnSearchSubmitted"
+                        TextBoxStyle="{StaticResource SearchTextBoxStyle}"
                         TextChanged="OnSearchTextChanged" />
                     <Grid
                         Grid.Row="1"

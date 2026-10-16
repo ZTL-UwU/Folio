@@ -173,6 +173,14 @@
             <Style x:Key="MiddleScrollGlyphStyle" TargetType="Shape">
                 <Setter Property="Fill" Value="{ThemeResource TextFillColorSecondaryBrush}" />
             </Style>
+
+            <!--  Search boxes: queries aren't prose, so no spell-check squiggles  -->
+            <Style
+                x:Key="SearchTextBoxStyle"
+                BasedOn="{StaticResource AutoSuggestBoxTextBoxStyle}"
+                TargetType="TextBox">
+                <Setter Property="IsSpellCheckEnabled" Value="False" />
+            </Style>
         </ResourceDictionary>
     </Application.Resources>
 </Application>
