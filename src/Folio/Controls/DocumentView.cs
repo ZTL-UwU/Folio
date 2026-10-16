@@ -93,7 +93,8 @@ public sealed partial class DocumentView : UserControl
 
     private readonly Brush _selectionBrush;
     private readonly Brush _searchBrush = new SolidColorBrush(Color.FromArgb(0x60, 0xFF, 0xD0, 0x00));
-    private readonly Brush _currentSearchBrush = new SolidColorBrush(Color.FromArgb(0x90, 0xFF, 0x80, 0x00));
+    /// <summary>Drawn over the current hit's search highlight; the two together come to #90FF8000 on any page.</summary>
+    private readonly Brush _currentSearchBrush = new SolidColorBrush(Color.FromArgb(0x4D, 0xFF, 0x3A, 0x00));
 
     public DocumentView()
     {
@@ -500,26 +501,26 @@ public sealed partial class DocumentView : UserControl
             list.Add(hit);
             touched.Add(hit.PageIndex);
         }
-        foreach (var page in touched) UpdateOverlay(page);
+        foreach (var page in touched) UpdateOverlay(page, Overlays.Search);
     }
 
     public void ClearSearch()
     {
         _searchHits.Clear();
         _currentHit = null;
-        UpdateAllOverlays();
+        UpdateAllOverlays(Overlays.Search | Overlays.CurrentHit);
     }
 
     public async void ShowSearchHit(SearchHit hit)
     {
         var previous = _currentHit;
         _currentHit = hit;
-        if (previous is not null) UpdateOverlay(previous.PageIndex);
+        if (previous is not null && previous.PageIndex != hit.PageIndex) UpdateOverlay(previous.PageIndex, Overlays.CurrentHit);
         var text = await GetTextAsync(hit.PageIndex);
         if (text is null || _currentHit != hit) return;
         var bounds = Union(text.Layout.SourceRangeRects(hit.CharIndex, hit.CharIndex + hit.Length));
         EnsurePageVisible(hit.PageIndex, bounds);
-        UpdateOverlay(hit.PageIndex);
+        UpdateOverlay(hit.PageIndex, Overlays.CurrentHit);
     }
 
     private void EnsurePageVisible(int index, Rect displayBounds)
@@ -988,33 +989,58 @@ public sealed partial class DocumentView : UserControl
 
     // ---------------------------------------------------------------- overlays
 
-    private void UpdateAllOverlays()
+    [Flags]
+    private enum Overlays
     {
-        foreach (var index in _views.Keys) UpdateOverlay(index);
+        Search = 1,
+        CurrentHit = 2,
+        Selection = 4,
+        All = Search | CurrentHit | Selection,
     }
 
-    private void UpdateOverlay(int index)
+    private void UpdateAllOverlays(Overlays layers = Overlays.All)
+    {
+        foreach (var index in _views.Keys) UpdateOverlay(index, layers);
+    }
+
+    /// <summary>
+    /// Redraws a page's highlights in <paramref name="layers"/>. Each layer is its own, so moving the current hit
+    /// or the selection doesn't redraw the page's other hits, which can be hundreds.
+    /// </summary>
+    private void UpdateOverlay(int index, Overlays layers = Overlays.All)
     {
         if (!_views.TryGetValue(index, out var view)) return;
-        var shapes = new List<(Rect, Brush)>();
-        if (_texts.TryGetValue(index, out var text))
+        _texts.TryGetValue(index, out var text);
+        if (layers.HasFlag(Overlays.Search))
         {
-            if (_searchHits.TryGetValue(index, out var hits))
+            var shapes = new List<(Rect, Brush)>();
+            if (text is not null && _searchHits.TryGetValue(index, out var hits))
             {
                 foreach (var hit in hits)
-                {
-                    var brush = _currentHit is { } c && c.PageIndex == hit.PageIndex && c.CharIndex == hit.CharIndex ? _currentSearchBrush : _searchBrush;
-                    foreach (var r in text.Layout.SourceRangeRects(hit.CharIndex, hit.CharIndex + hit.Length)) shapes.Add((Inflate(r, 1), brush));
-                }
+                    foreach (var r in text.Layout.SourceRangeRects(hit.CharIndex, hit.CharIndex + hit.Length)) shapes.Add((Inflate(r, 1), _searchBrush));
             }
-            if (GetSelection() is { } sel && index >= sel.Start.Page && index <= sel.End.Page)
+            view.SetOverlay(OverlayLayer.Search, shapes);
+        }
+        if (layers.HasFlag(Overlays.CurrentHit))
+        {
+            var shapes = new List<(Rect, Brush)>();
+            if (text is not null && _currentHit is { } hit && hit.PageIndex == index)
+            {
+                foreach (var r in text.Layout.SourceRangeRects(hit.CharIndex, hit.CharIndex + hit.Length)) shapes.Add((Inflate(r, 1), _currentSearchBrush));
+            }
+            view.SetOverlay(OverlayLayer.CurrentHit, shapes);
+        }
+        if (layers.HasFlag(Overlays.Selection))
+        {
+            var shapes = new List<(Rect, Brush)>();
+            if (text is not null && GetSelection() is { } sel && index >= sel.Start.Page && index <= sel.End.Page)
             {
                 int start = index == sel.Start.Page ? sel.Start.Caret : 0;
                 int end = index == sel.End.Page ? sel.End.Caret : text.Count;
                 foreach (var r in HitRects(text, start, end)) shapes.Add((r, _selectionBrush));
             }
+            view.SetOverlay(OverlayLayer.Selection, shapes);
         }
-        view.SetOverlay(shapes);
     }
 
     private static Rect Inflate(Rect r, double d) => new(r.X - d, r.Y - d, r.Width + 2 * d, r.Height + 2 * d);
@@ -1047,7 +1073,7 @@ public sealed partial class DocumentView : UserControl
         _selectionFocus = null;
         if (old is { } s)
         {
-            for (int p = s.Start.Page; p <= s.End.Page; p++) UpdateOverlay(p);
+            for (int p = s.Start.Page; p <= s.End.Page; p++) UpdateOverlay(p, Overlays.Selection);
         }
         if (had) SelectionChanged?.Invoke(this, EventArgs.Empty);
     }
@@ -1057,7 +1083,7 @@ public sealed partial class DocumentView : UserControl
         if (_document is null) return;
         _selectionAnchor = new TextPosition(0, 0);
         _selectionFocus = new TextPosition(_document.PageCount - 1, int.MaxValue);
-        UpdateAllOverlays();
+        UpdateAllOverlays(Overlays.Selection);
         SelectionChanged?.Invoke(this, EventArgs.Empty);
     }
 
@@ -1630,7 +1656,7 @@ public sealed partial class DocumentView : UserControl
         var now = GetSelection();
         int from = Math.Min(old?.Start.Page ?? focus.Page, now?.Start.Page ?? focus.Page);
         int to = Math.Max(old?.End.Page ?? focus.Page, now?.End.Page ?? focus.Page);
-        for (int p = from; p <= to; p++) UpdateOverlay(p);
+        for (int p = from; p <= to; p++) UpdateOverlay(p, Overlays.Selection);
         SelectionChanged?.Invoke(this, EventArgs.Empty);
     }
 

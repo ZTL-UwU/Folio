@@ -1,3 +1,5 @@
+using System.Collections.ObjectModel;
+using System.Collections.Specialized;
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
 using Folio.Controls;
@@ -127,8 +129,40 @@ public sealed class AttachmentItem(PdfAttachment attachment)
     }
 }
 
-public sealed class SearchItem(SearchHit hit, string pageLabel)
+public sealed partial class SearchItem(SearchHit hit, string pageLabel) : ObservableItem
 {
+    private bool _isCurrent;
+
     public SearchHit Hit { get; } = hit;
     public string Page { get; } = pageLabel;
+
+    /// <summary>The result shown in the document, marked in the list.</summary>
+    public bool IsCurrent
+    {
+        get => _isCurrent;
+        set => Set(ref _isCurrent, value);
+    }
+}
+
+/// <summary>
+/// Search results, added in batches: a ListView handles each change to a collection on its own, at about 12 µs
+/// each, so adding a search's results one by one took seconds. A batch goes in as one Reset.
+/// </summary>
+public sealed partial class SearchItemCollection : ObservableCollection<SearchItem>
+{
+    private static readonly PropertyChangedEventArgs CountChanged = new(nameof(Count));
+    private static readonly PropertyChangedEventArgs IndexerChanged = new("Item[]");
+    private static readonly NotifyCollectionChangedEventArgs Reset = new(NotifyCollectionChangedAction.Reset);
+
+    /// <summary>Appends <paramref name="items"/> as one change.</summary>
+    public void AddRange(List<SearchItem> items)
+    {
+        if (items.Count == 0) return;
+        CheckReentrancy();
+        // Collection<T> keeps its items in a List<T> unless given another list.
+        ((List<SearchItem>)Items).AddRange(items);
+        OnPropertyChanged(CountChanged);
+        OnPropertyChanged(IndexerChanged);
+        OnCollectionChanged(Reset);
+    }
 }

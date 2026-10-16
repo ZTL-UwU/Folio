@@ -118,7 +118,7 @@ internal static class Dialogs
                 ("F9", "Show or hide the sidebar"),
             ]),
             ("Search and selection", [
-                ("Ctrl+F", "Search"), ("F3 / Enter", "Next result"), ("Shift+F3", "Previous result"),
+                ("Ctrl+F", "Search"), ("F3 / Enter", "Next result"), ("Shift+F3 / Shift+Enter", "Previous result"),
                 ("Ctrl+C", "Copy selected text"), ("Ctrl+A", "Select all"), ("Ctrl+H", "Highlight selection"),
             ]),
             ("View", [

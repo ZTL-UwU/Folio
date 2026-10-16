@@ -61,9 +61,6 @@ internal static unsafe partial class Native
 
     public const uint FPDF_INCREMENTAL = 1;
 
-    public const uint FPDF_MATCHCASE = 0x1;
-    public const uint FPDF_MATCHWHOLEWORD = 0x2;
-
     public const uint PDFACTION_GOTO = 1;
     public const uint PDFACTION_URI = 3;
 
@@ -126,11 +123,6 @@ internal static unsafe partial class Native
     [LibraryImport(Lib)] public static partial int FPDFText_CountChars(IntPtr textPage);
     [LibraryImport(Lib)] public static partial uint FPDFText_GetUnicode(IntPtr textPage, int index);
     [LibraryImport(Lib)] public static partial int FPDFText_GetLooseCharBox(IntPtr textPage, int index, FS_RECTF* rect);
-    [LibraryImport(Lib)] public static partial IntPtr FPDFText_FindStart(IntPtr textPage, char* findWhat, uint flags, int startIndex);
-    [LibraryImport(Lib)] public static partial int FPDFText_FindNext(IntPtr handle);
-    [LibraryImport(Lib)] public static partial int FPDFText_GetSchResultIndex(IntPtr handle);
-    [LibraryImport(Lib)] public static partial int FPDFText_GetSchCount(IntPtr handle);
-    [LibraryImport(Lib)] public static partial void FPDFText_FindClose(IntPtr handle);
 
     [LibraryImport(Lib)] public static partial IntPtr FPDFLink_LoadWebLinks(IntPtr textPage);
     [LibraryImport(Lib)] public static partial int FPDFLink_CountWebLinks(IntPtr linkPage);

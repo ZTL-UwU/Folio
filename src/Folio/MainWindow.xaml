@@ -836,13 +836,6 @@
                             <FontIcon FontSize="14" Glyph="&#xE70D;" />
                         </Button>
                     </Grid>
-                    <ProgressBar
-                        x:Name="SearchProgress"
-                        Grid.Row="1"
-                        Margin="16,0,16,0"
-                        VerticalAlignment="Bottom"
-                        IsIndeterminate="False"
-                        Visibility="Collapsed" />
                     <ListView
                         x:Name="SearchResultList"
                         Grid.Row="2"
@@ -851,6 +844,17 @@
                         IsItemClickEnabled="True"
                         ItemClick="OnSearchResultClick"
                         SelectionMode="Single">
+                        <!--  None: results are replaced as the query is typed and added in batches, and each would animate in  -->
+                        <ListView.ItemContainerTransitions>
+                            <TransitionCollection />
+                        </ListView.ItemContainerTransitions>
+                        <!--
+                            The selected result is marked by the template's own indicator: a list item's animates in, and does so
+                            again from the item's top whenever the list is reset as results are added
+                        -->
+                        <ListView.Resources>
+                            <x:Boolean x:Key="ListViewItemSelectionIndicatorVisualEnabled">False</x:Boolean>
+                        </ListView.Resources>
                         <ListView.ItemTemplate>
                             <DataTemplate x:DataType="local:SearchItem">
                                 <Grid Padding="0,7" ColumnSpacing="12">
@@ -867,6 +871,18 @@
                                         Foreground="{ThemeResource TextFillColorTertiaryBrush}"
                                         Style="{StaticResource CaptionTextBlockStyle}"
                                         Text="{x:Bind Page}" />
+                                    <!--  Where a list item draws its selection indicator, at the left of its background  -->
+                                    <Rectangle
+                                        Grid.ColumnSpan="2"
+                                        Width="3"
+                                        Height="16"
+                                        Margin="-12,0,0,0"
+                                        HorizontalAlignment="Left"
+                                        VerticalAlignment="Center"
+                                        Fill="{ThemeResource ListViewItemSelectionIndicatorBrush}"
+                                        RadiusX="1.5"
+                                        RadiusY="1.5"
+                                        Visibility="{x:Bind IsCurrent, Mode=OneWay}" />
                                 </Grid>
                             </DataTemplate>
                         </ListView.ItemTemplate>

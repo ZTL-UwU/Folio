@@ -227,4 +227,52 @@ public sealed class PdfDocumentTests : IDisposable
 
         Assert.Equal("b", Assert.Single(await document.GetAllAnnotationsAsync(CancellationToken.None)).Contents);
     }
+
+    [Fact]
+    public async Task SearchText_HasPdfiumsCharacterIndexes_AndFindsWordsHyphenatedAcrossLines()
+    {
+        string path = _temp.Write("text.pdf", TestPdf.Create(text: "This is an exam-\nple of a search\nengine."));
+        using var document = await PdfDocument.OpenAsync(path);
+        string text = await document.GetSearchTextAsync(0, CancellationToken.None);
+        var page = await document.GetPageTextAsync(0);
+        Assert.Equal(page.Count, text.Length);
+
+        var hyphenated = Assert.Single(TextSearch.Find(text, 0, "example", SearchOptions.JoinHyphenated));
+        Assert.Equal("example", hyphenated.Match);
+        var acrossLines = Assert.Single(TextSearch.Find(text, 0, "search engine", SearchOptions.None));
+        Assert.Equal("search engine", acrossLines.Match);
+        Assert.NotEmpty(page.Layout.SourceRangeRects(acrossLines.CharIndex, acrossLines.CharIndex + acrossLines.Length));
+        Assert.Same(text, await document.GetSearchTextAsync(0, CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task Search_PassesOnEveryPagesHits_InOrder()
+    {
+        string path = _temp.Write("text.pdf", TestPdf.Create(pages: 3, text: "a search engine"));
+        using var document = await PdfDocument.OpenAsync(path);
+
+        var pages = new List<(int Page, int Hits)>();
+        await foreach (var (page, hits) in document.Search("search", SearchOptions.None, CancellationToken.None).ReadAllAsync())
+            pages.Add((page, hits.Count));
+
+        Assert.Equal([(0, 1), (1, 1), (2, 1)], pages);
+    }
+
+    [Fact]
+    public async Task SearchText_IsKept_WhenReadAheadOrShown()
+    {
+        string path = _temp.Write("text.pdf", TestPdf.Create(pages: 3, text: "Some text"));
+        using var document = await PdfDocument.OpenAsync(path);
+        Assert.Null(document.EstimatedTextLength);
+
+        var page = await document.GetPageTextAsync(1);
+        Assert.Equal(3L * page.Count, document.EstimatedTextLength);
+        var shown = document.GetSearchTextAsync(1, CancellationToken.None);
+        Assert.True(shown.IsCompletedSuccessfully);
+        Assert.Equal(page.Count, shown.Result.Length);
+
+        await document.ReadSearchTextAsync(CancellationToken.None);
+        for (int i = 0; i < 3; i++) Assert.True(document.GetSearchTextAsync(i, CancellationToken.None).IsCompletedSuccessfully);
+        Assert.Equal(3L * page.Count, document.EstimatedTextLength);
+    }
 }

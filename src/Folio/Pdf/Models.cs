@@ -123,7 +123,10 @@ public sealed class PageText
     private bool IsHigh(int i) => CodePoints[i] is >= 0xD800 and <= 0xDBFF;
     private bool IsLow(int i) => CodePoints[i] is >= 0xDC00 and <= 0xDFFF;
 
-    public bool IsWordChar(int i) => i >= 0 && i < Count && CodePoints[i] > 32 && !char.IsWhiteSpace((char)Math.Min(CodePoints[i], 0xFFFF)) && !IsPunctuation(CodePoints[i]);
+    public bool IsWordChar(int i) => i >= 0 && i < Count && IsWordCodePoint(CodePoints[i]);
+
+    /// <summary>Whether a character belongs to a word, for double-click selection and whole-word search.</summary>
+    public static bool IsWordCodePoint(int cp) => cp > 32 && !char.IsWhiteSpace((char)Math.Min(cp, 0xFFFF)) && !IsPunctuation(cp);
 
     private static bool IsPunctuation(int cp) => cp < 0x10000 && char.IsPunctuation((char)cp) && cp != '\'' && cp != '-' && cp != '_';
 }
@@ -147,9 +150,16 @@ public sealed class SearchHit
     public required int PageIndex { get; init; }
     public required int CharIndex { get; init; }
     public required int Length { get; init; }
-    public string Before { get; init; } = "";
-    public string Match { get; init; } = "";
-    public string After { get; init; } = "";
+    /// <summary>The page's search text, which the context below is read from.</summary>
+    public required string PageText { get; init; }
+    /// <summary>Whether hyphen markers are left out of the context, as they were out of the match.</summary>
+    public bool JoinHyphenated { get; init; }
+
+    // Read when a result is shown rather than for every hit: a short query has hundreds of thousands of them,
+    // and making their context took most of the search's time and memory.
+    public string Before => TextSearch.Context(PageText, Math.Max(0, CharIndex - 40), CharIndex, true, JoinHyphenated);
+    public string Match => TextSearch.Context(PageText, CharIndex, CharIndex + Length, false, JoinHyphenated);
+    public string After => TextSearch.Context(PageText, CharIndex + Length, Math.Min(PageText.Length, CharIndex + Length + 60), false, JoinHyphenated);
 }
 
 public sealed class DocumentInfo

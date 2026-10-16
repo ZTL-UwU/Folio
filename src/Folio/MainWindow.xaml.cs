@@ -18,6 +18,7 @@ using Windows.ApplicationModel.DataTransfer;
 using Windows.Graphics;
 using Windows.Graphics.Imaging;
 using Windows.System;
+using DispatcherQueuePriority = Microsoft.UI.Dispatching.DispatcherQueuePriority;
 using DispatcherQueueTimer = Microsoft.UI.Dispatching.DispatcherQueueTimer;
 using ZoomMode = Folio.Services.ZoomMode;
 using COMException = System.Runtime.InteropServices.COMException;
@@ -34,7 +35,7 @@ public sealed partial class MainWindow : Window
     private readonly DispatcherQueueTimer _thumbnailSyncThrottle;
     private bool _thumbnailSyncPending;
     private readonly TaskCompletionSource _loaded = new();
-    private readonly ObservableCollection<SearchItem> _searchItems = [];
+    private readonly SearchItemCollection _searchItems = new();
     private readonly ObservableCollection<AnnotationItem> _annotationItems = [];
     private readonly Dictionary<int, PdfAnnotation[]> _annotations = [];
     private List<ThumbnailItem> _thumbnails = [];
@@ -51,11 +52,25 @@ public sealed partial class MainWindow : Window
     private bool _hideStartPage;
     private RecentDocument? _entry;
     private CancellationTokenSource? _searchCts;
+    /// <summary>Reading the pages' text while the search panel is open; see <see cref="ReadSearchText"/>.</summary>
+    private CancellationTokenSource? _searchTextCts;
     private CancellationTokenSource? _annotationScanCts;
     private FileSystemWatcher? _watcher;
     private DateTime _ignoreWatcherUntil;
     private int _searchIndex = -1;
+    /// <summary>
+    /// The search picked the current result, and keeps it at the top of the list while it adds the ones after it,
+    /// until another is picked.
+    /// </summary>
+    private bool _searchResultAtTop;
+    /// <summary>
+    /// The results listed are the last search's: they stay until the new one lists its own, so the list and the
+    /// highlights don't flash empty while it starts.
+    /// </summary>
+    private bool _searchResultsStale;
     private string _searchQuery = "";
+    /// <summary>The options <see cref="_searchQuery"/> was searched with.</summary>
+    private SearchOptions _searchOptions;
     private bool _syncingThumbnails;
     private bool _sidebarOpen;
     private bool _fullscreen;
@@ -95,7 +110,6 @@ public sealed partial class MainWindow : Window
         App.OpenWindows.Add(this);
 
         _searchDebounce = DispatcherQueue.CreateTimer();
-        _searchDebounce.Interval = TimeSpan.FromMilliseconds(350);
         _searchDebounce.IsRepeating = false;
         _searchDebounce.Tick += OnSearchDebounceTick;
 
@@ -150,6 +164,10 @@ public sealed partial class MainWindow : Window
         Root.Loaded += (_, _) => _loaded.TrySetResult();
         SearchBox.AddHandler(UIElement.KeyDownEvent, new KeyEventHandler(OnSearchKeyDown), true);
         RecentSearchBox.AddHandler(UIElement.KeyDownEvent, new KeyEventHandler(OnRecentSearchKeyDown), true);
+        // Once the results list is scrolled, results listed after that leave it where it is.
+        SearchResultList.AddHandler(UIElement.PointerWheelChangedEvent, new PointerEventHandler((_, _) => _searchResultAtTop = false), true);
+        SearchResultList.AddHandler(UIElement.PointerPressedEvent, new PointerEventHandler((_, _) => _searchResultAtTop = false), true);
+        SearchResultList.AddHandler(UIElement.KeyDownEvent, new KeyEventHandler((_, _) => _searchResultAtTop = false), true);
         SetupAccelerators();
         // AppState is static: unsubscribed in OnWindowClosed, or it would keep every closed window alive.
         _recentChanged = (_, _) => DispatcherQueue.TryEnqueue(RefreshRecent);
@@ -523,6 +541,7 @@ public sealed partial class MainWindow : Window
         _thumbnailSyncThrottle.Stop();
         _thumbnailSyncThrottle.Tick -= OnThumbnailSyncThrottleTick;
         _searchCts?.Cancel();
+        _searchTextCts?.Cancel();
         _annotationScanCts?.Cancel();
         _watcher?.Dispose();
         _watcher = null;
@@ -543,7 +562,12 @@ public sealed partial class MainWindow : Window
         AppTitleBar.RightHeader = null;
     }
 
-    private void OnSearchDebounceTick(DispatcherQueueTimer sender, object args) => StartSearch(SearchBox.Text);
+    private void OnSearchDebounceTick(DispatcherQueueTimer sender, object args)
+    {
+        // A space typed after the query leaves it as it was: searching again would move back to the page's first result.
+        if (_searchQuery.Length > 0 && SearchBox.Text.Trim() == _searchQuery && CurrentSearchOptions() == _searchOptions) return;
+        StartSearch(SearchBox.Text);
+    }
     private void OnReloadDebounceTick(DispatcherQueueTimer sender, object args) => OnFileChangedOnDisk();
     private void OnHintTimerTick(DispatcherQueueTimer sender, object args) => FullscreenHint.Opacity = 0;
 
@@ -1256,13 +1280,32 @@ public sealed partial class MainWindow : Window
         if (args.Reason != AutoSuggestionBoxTextChangeReason.UserInput) return;
         _searchDebounce.Stop();
         if (string.IsNullOrEmpty(sender.Text)) StartSearch("");
-        else _searchDebounce.Start();
+        else
+        {
+            _searchDebounce.Interval = TimeSpan.FromMilliseconds(SearchDelay(sender.Text));
+            _searchDebounce.Start();
+        }
+    }
+
+    /// <summary>How long to wait after a key is typed before searching for <paramref name="text"/>, in milliseconds.</summary>
+    private double SearchDelay(string text)
+    {
+        // Searching takes milliseconds once the pages are read, so it can keep up with typing. The shorter the
+        // query, the more it matches and the likelier it's a word still being typed, so the longer it waits.
+        int length = text.Trim().Length;
+        var (delay, max) = length < 3 ? (200.0, 225.0) : length < 5 ? (75.0, 90.0) : (25.0, 40.0);
+        // Those suit about two million characters of text (a 1,000-page document). The results, and the time to
+        // list them, grow with the text, so scale the wait with it, up to a limit.
+        if (_document?.EstimatedTextLength is { } chars) delay = Math.Min(delay * Math.Max(chars / 2e6, 0.25), max);
+        return delay;
     }
 
     private void OnSearchSubmitted(AutoSuggestBox sender, AutoSuggestBoxQuerySubmittedEventArgs args)
     {
         _searchDebounce.Stop();
-        if (args.QueryText == _searchQuery && _searchItems.Count > 0) MoveSearch(+1);
+        // Enter submits the query whether or not Shift is down, so Shift+Enter is told apart here.
+        // _searchQuery is trimmed, so a space typed after the query doesn't make Enter search again instead of moving on.
+        if (args.QueryText.Trim() == _searchQuery && _searchItems.Count > 0 && !_searchResultsStale) MoveSearch(IsShiftDown() ? -1 : +1);
         else StartSearch(args.QueryText);
     }
 
@@ -1272,11 +1315,6 @@ public sealed partial class MainWindow : Window
         {
             CancelSearch(clearText: true);
             Viewer.Focus(FocusState.Programmatic);
-            e.Handled = true;
-        }
-        else if (e.Key == VirtualKey.Enter && IsShiftDown())
-        {
-            MoveSearch(-1);
             e.Handled = true;
         }
     }
@@ -1291,53 +1329,123 @@ public sealed partial class MainWindow : Window
     private async void StartSearch(string query)
     {
         _searchCts?.Cancel();
-        _searchItems.Clear();
-        _searchIndex = -1;
-        Viewer.ClearSearch();
         _searchQuery = query.Trim();
+        if (_document is null || _searchQuery.Length == 0) ClearSearchResults();
         if (_document is null) return;
         ShowSearchPanel();
         if (string.IsNullOrEmpty(_searchQuery))
         {
             SearchStatus.Text = "";
-            SearchProgress.Visibility = Visibility.Collapsed;
             return;
         }
         var cts = _searchCts = new CancellationTokenSource();
         var document = _document;
-        SearchProgress.Visibility = Visibility.Visible;
-        SearchProgress.Maximum = document.PageCount;
-        SearchProgress.Value = 0;
         SearchStatus.Text = "Searching…";
-        bool matchCase = MatchCaseToggle.IsChecked == true, wholeWords = WholeWordToggle.IsChecked == true;
+        var options = _searchOptions = CurrentSearchOptions();
+        _searchResultsStale = true;
         int start = Viewer.CurrentPage;
+        // Results wait in pending to be listed in batches.
+        int found = 0, fromStart = 0;
+        // Rows a full list shows: a list item is at least 40 high.
+        int screenful = (int)(SearchResultList.ActualHeight / 40) + 1;
+        var pending = new List<SearchItem>();
+        long started = Environment.TickCount64, yielded = started, listed = started;
         try
         {
-            for (int i = 0; i < document.PageCount; i++)
+            // Pages are searched on another thread; those it has searched are taken here without waiting.
+            await foreach (var (i, hits) in document.Search(_searchQuery, options, cts.Token).ReadAllAsync(cts.Token))
             {
-                var hits = await document.SearchPageAsync(i, _searchQuery, matchCase, wholeWords, cts.Token);
                 if (cts.IsCancellationRequested) return;
                 if (hits.Count > 0)
                 {
                     string label = document.GetPageLabel(i);
-                    int first = _searchItems.Count;
-                    foreach (var hit in hits) _searchItems.Add(new SearchItem(hit, label));
-                    Viewer.AddSearchResults(hits);
-                    if (_searchIndex < 0 && i >= start) SelectSearchResult(first);
+                    foreach (var hit in hits) pending.Add(new SearchItem(hit, label));
+                    found += hits.Count;
+                    if (i >= start) fromStart += hits.Count;
                 }
-                SearchProgress.Value = i + 1;
-                SearchStatus.Text = ResultText(_searchItems.Count) + "…";
+                // Each change to the list has it lay out its rows again, which takes about as long as searching pages
+                // already read, so results are listed once, when the search is done. While pages are still being
+                // read, they're listed every so often, the first time once there are enough from the current page on
+                // to fill the list below the one shown: listed alone, it would show at the bottom, then jump to the top.
+                // Failing that, they're listed a moment after the current page is searched, not before: those from
+                // the start of the document would show with none selected. Until then the last search's stay.
+                long now = Environment.TickCount64;
+                bool listing = pending.Count > 0 && (_searchResultsStale || _searchIndex < 0
+                    ? i >= start && now - started > 100 && (fromStart >= screenful || now - listed > 300)
+                    : now - listed > 250);
+                if (listing)
+                {
+                    ListSearchResults(pending, start);
+                    listed = Environment.TickCount64;
+                }
+                SearchStatus.Text = ResultText(found) + "…";
+                // Pages read by an earlier search are searched faster than they're listed; let the window draw and take
+                // input now and then, and after updating the list, which takes it a while.
+                if (listing || Environment.TickCount64 - yielded > 30)
+                {
+                    await YieldToWindowAsync();
+                    if (cts.IsCancellationRequested) return;
+                    yielded = Environment.TickCount64;
+                }
             }
+            ListSearchResults(pending, start);
+            // Nothing from the current page on: wrap round to the first.
             if (_searchIndex < 0 && _searchItems.Count > 0) SelectSearchResult(0);
-            SearchStatus.Text = _searchItems.Count == 0 ? "No results found" : ResultText(_searchItems.Count);
+            SearchStatus.Text = found == 0 ? "No results found" : ResultText(found);
         }
         catch (Exception ex) when (ex is OperationCanceledException or ObjectDisposedException)
         {
         }
-        finally
+    }
+
+    /// <summary>
+    /// Lists waiting results, and if none is selected yet, selects the first from page <paramref name="start"/>
+    /// on: the next one from where the reader is.
+    /// </summary>
+    private void ListSearchResults(List<SearchItem> pending, int start)
+    {
+        if (_searchResultsStale) ClearSearchResults();
+        if (pending.Count == 0) return;
+        int first = _searchItems.Count;
+        _searchItems.AddRange(pending);
+        Viewer.AddSearchResults(pending.Select(item => item.Hit));
+        pending.Clear();
+        if (_searchIndex >= 0)
         {
-            if (_searchCts == cts) SearchProgress.Visibility = Visibility.Collapsed;
+            // The list forgets its selection when reset.
+            SearchResultList.SelectedIndex = _searchIndex;
+            // Results listed after the current one let it scroll further up.
+            if (_searchResultAtTop) SearchResultList.ScrollIntoView(_searchItems[_searchIndex], ScrollIntoViewAlignment.Leading);
+            return;
         }
+        for (int i = first; i < _searchItems.Count; i++)
+        {
+            if (_searchItems[i].Hit.PageIndex < start) continue;
+            SelectSearchResult(i);
+            // At the top, with the results after it below, rather than at the bottom as the last one listed so far.
+            SearchResultList.ScrollIntoView(_searchItems[i], ScrollIntoViewAlignment.Leading);
+            _searchResultAtTop = true;
+            break;
+        }
+    }
+
+    /// <summary>
+    /// Lets the window take input and draw before carrying on. Task.Yield isn't enough: it queues the rest at normal
+    /// priority, ahead of input and rendering, so a loop that keeps yielding still freezes the window.
+    /// </summary>
+    private Task YieldToWindowAsync()
+    {
+        var done = new TaskCompletionSource();
+        if (!DispatcherQueue.TryEnqueue(DispatcherQueuePriority.Low, done.SetResult)) done.SetResult();
+        return done.Task;
+    }
+
+    private SearchOptions CurrentSearchOptions()
+    {
+        var prefs = AppState.Preferences;
+        return (MatchCaseToggle.IsChecked == true ? SearchOptions.MatchCase : 0) | (WholeWordToggle.IsChecked == true ? SearchOptions.WholeWords : 0)
+            | (prefs.SearchAnyQuote ? SearchOptions.AnyQuote : 0) | (prefs.SearchAnyDash ? SearchOptions.AnyDash : 0)
+            | (prefs.SearchJoinHyphenated ? SearchOptions.JoinHyphenated : 0);
     }
 
     private const double SearchSidebarWidth = 280;
@@ -1353,6 +1461,24 @@ public sealed partial class MainWindow : Window
         AppTitleBar.IsPaneToggleButtonVisible = false;
         AppTitleBar.IsBackButtonVisible = true;
         ThumbnailList.Visibility = OutlineTree.Visibility = AnnotationsPanel.Visibility = AttachmentList.Visibility = Visibility.Collapsed;
+        ReadSearchText();
+    }
+
+    /// <summary>
+    /// Starts reading the pages' text when search opens rather than when the document does, so it costs nothing
+    /// for documents that aren't searched, and is mostly done by the time the query is typed.
+    /// </summary>
+    private async void ReadSearchText()
+    {
+        if (_document is null || _searchTextCts is not null) return;
+        var cts = _searchTextCts = new CancellationTokenSource();
+        try
+        {
+            await _document.ReadSearchTextAsync(cts.Token);
+        }
+        catch (Exception ex) when (ex is OperationCanceledException or ObjectDisposedException)
+        {
+        }
     }
 
     private static string ResultText(int count) => count == 1 ? "1 result" : $"{count:N0} results";
@@ -1361,16 +1487,15 @@ public sealed partial class MainWindow : Window
     {
         _searchCts?.Cancel();
         _searchCts = null;
+        _searchTextCts?.Cancel();
+        _searchTextCts = null;
         _searchDebounce.Stop();
-        _searchItems.Clear();
-        _searchIndex = -1;
+        ClearSearchResults();
         _searchQuery = "";
-        Viewer.ClearSearch();
         if (clearText) SearchBox.Text = "";
         SearchStatus.Text = "";
         SearchPanel.Visibility = Visibility.Collapsed;
         SidebarSelector.Visibility = Visibility.Visible;
-        SearchProgress.Visibility = Visibility.Collapsed;
         AppTitleBar.IsBackButtonVisible = false;
         AppTitleBar.IsPaneToggleButtonVisible = _document is not null;
         if (_sidebarOpen) SidebarColumn.Width = new GridLength(SidebarWidth());
@@ -1378,10 +1503,22 @@ public sealed partial class MainWindow : Window
         if (_document is not null && !AppState.Preferences.SidebarOpen && _sidebarOpen) SetSidebarOpen(false, persist: false);
     }
 
+    private void ClearSearchResults()
+    {
+        _searchItems.Clear();
+        _searchIndex = -1;
+        _searchResultAtTop = false;
+        _searchResultsStale = false;
+        Viewer.ClearSearch();
+    }
+
     private void SelectSearchResult(int index)
     {
         if (index < 0 || index >= _searchItems.Count) return;
+        _searchResultAtTop = false;
+        if (_searchIndex >= 0 && _searchIndex < _searchItems.Count) _searchItems[_searchIndex].IsCurrent = false;
         _searchIndex = index;
+        _searchItems[index].IsCurrent = true;
         SearchResultList.SelectedIndex = index;
         SearchResultList.ScrollIntoView(_searchItems[index]);
         Viewer.ShowSearchHit(_searchItems[index].Hit);
@@ -1389,7 +1526,8 @@ public sealed partial class MainWindow : Window
 
     private void MoveSearch(int direction)
     {
-        if (_searchItems.Count == 0) return;
+        // The results listed are the last search's until this one lists its own.
+        if (_searchItems.Count == 0 || _searchResultsStale) return;
         int next = _searchIndex < 0 ? 0 : (_searchIndex + direction + _searchItems.Count) % _searchItems.Count;
         SelectSearchResult(next);
     }
@@ -1408,7 +1546,8 @@ public sealed partial class MainWindow : Window
         if (args.ItemContainer.ContentTemplateRoot is not Grid grid || grid.Children[0] is not TextBlock text) return;
         text.Inlines.Clear();
         var hit = item.Hit;
-        text.Inlines.Add(new Run { Text = (hit.Before.Length > 0 ? "…" : "") + hit.Before });
+        string before = hit.Before;
+        text.Inlines.Add(new Run { Text = (before.Length > 0 ? "…" : "") + before });
         text.Inlines.Add(new Run { Text = hit.Match, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
         text.Inlines.Add(new Run { Text = hit.After });
     }
@@ -1590,6 +1729,8 @@ public sealed partial class MainWindow : Window
         ShowCurrentView();
         UpdateChrome();
         if (_document is not null) Viewer.Focus(FocusState.Programmatic);
+        // Settings has options for how search matches.
+        if (_searchQuery.Length > 0 && CurrentSearchOptions() != _searchOptions) StartSearch(_searchQuery);
         if (_reloadAfterSettings)
         {
             _reloadAfterSettings = false;

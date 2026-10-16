@@ -20,6 +20,14 @@ using WinRT;
 
 namespace Folio.Controls;
 
+/// <summary>Highlights over a page, bottom to top. Each is replaced on its own, so one changing leaves the others be.</summary>
+internal enum OverlayLayer
+{
+    Search,
+    CurrentHit,
+    Selection,
+}
+
 /// <summary>
 /// Displays a single page: a full-page bitmap, optional high resolution tiles for the visible
 /// region when zoomed in, and an overlay for selection / search highlights.
@@ -37,6 +45,7 @@ internal sealed partial class PageView : Canvas
     private readonly Image _base = new() { Stretch = Stretch.Fill, IsHitTestVisible = false };
     private readonly Canvas _tiles = new() { IsHitTestVisible = false };
     private readonly Canvas _overlay = new() { IsHitTestVisible = false };
+    private readonly Canvas[] _overlayLayers = [.. Enum.GetValues<OverlayLayer>().Select(_ => new Canvas())];
     private readonly Border _frameHost = new() { IsHitTestVisible = false };
     private readonly Border _paper = new() { IsHitTestVisible = false };
     private readonly Dictionary<(int Col, int Row), Image> _tileImages = [];
@@ -58,6 +67,7 @@ internal sealed partial class PageView : Canvas
         Children.Add(_base);
         Children.Add(_tiles);
         Children.Add(_overlay);
+        foreach (var layer in _overlayLayers) _overlay.Children.Add(layer);
         if (framed) AttachFrame();
     }
 
@@ -593,7 +603,7 @@ internal sealed partial class PageView : Canvas
     /// parsed from path markup in a single call, instead of a Rectangle element per highlight:
     /// pages with hundreds of search hits used to take tens of milliseconds to update.
     /// </summary>
-    public void SetOverlay(IEnumerable<(Rect Rect, Brush Fill)> shapes)
+    public void SetOverlay(OverlayLayer layer, IEnumerable<(Rect Rect, Brush Fill)> shapes)
     {
         var paths = new Dictionary<Brush, StringBuilder>();
         foreach (var (rect, fill) in shapes)
@@ -604,11 +614,12 @@ internal sealed partial class PageView : Canvas
             if (!paths.TryGetValue(fill, out var markup)) paths[fill] = markup = new StringBuilder("F1");
             AppendRoundedRect(markup, view, 1.5);
         }
-        _overlay.Children.Clear();
+        var canvas = _overlayLayers[(int)layer];
+        canvas.Children.Clear();
         foreach (var (fill, markup) in paths)
         {
             var geometry = (Geometry)XamlBindingHelper.ConvertValue(typeof(Geometry), markup.ToString());
-            _overlay.Children.Add(new Microsoft.UI.Xaml.Shapes.Path { Data = geometry, Fill = fill });
+            canvas.Children.Add(new Microsoft.UI.Xaml.Shapes.Path { Data = geometry, Fill = fill });
         }
     }
 

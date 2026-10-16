@@ -33,6 +33,9 @@ public sealed partial class SettingsPage : UserControl
         _refreshing = true;
         ThemeOptions.SelectedIndex = Array.FindIndex(Themes, t => t.Theme == prefs.Theme);
         CornersToggle.IsOn = prefs.RoundedPageCorners;
+        HyphenatedToggle.IsOn = prefs.SearchJoinHyphenated;
+        QuotesToggle.IsOn = prefs.SearchAnyQuote;
+        DashesToggle.IsOn = prefs.SearchAnyDash;
         RecentToggle.IsOn = prefs.RememberRecent;
         _refreshing = false;
         UpdateThemeValue();
@@ -56,6 +59,27 @@ public sealed partial class SettingsPage : UserControl
         AppState.Preferences.RoundedPageCorners = CornersToggle.IsOn;
         AppState.Save();
         App.ApplyPageCorners();
+    }
+
+    private void OnHyphenatedToggled(object sender, RoutedEventArgs e)
+    {
+        if (_refreshing) return;
+        AppState.Preferences.SearchJoinHyphenated = HyphenatedToggle.IsOn;
+        AppState.Save();
+    }
+
+    private void OnQuotesToggled(object sender, RoutedEventArgs e)
+    {
+        if (_refreshing) return;
+        AppState.Preferences.SearchAnyQuote = QuotesToggle.IsOn;
+        AppState.Save();
+    }
+
+    private void OnDashesToggled(object sender, RoutedEventArgs e)
+    {
+        if (_refreshing) return;
+        AppState.Preferences.SearchAnyDash = DashesToggle.IsOn;
+        AppState.Save();
     }
 
     private void OnRecentToggled(object sender, RoutedEventArgs e)

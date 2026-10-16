@@ -44,6 +44,10 @@ public sealed unsafe partial class PdfDocument : IDisposable
     private void* _formInfo;
     private readonly LinkedList<(int Index, IntPtr Page)> _pages = new();
     private readonly Dictionary<int, PageTransform> _transforms = [];
+    /// <summary>Written on the worker thread, read from any; see <see cref="GetSearchTextAsync"/>.</summary>
+    private readonly string?[] _searchTexts;
+    private int _searchTextPages;
+    private long _searchTextChars;
     private bool _disposed;
 
     public string FilePath { get; private set; }
@@ -64,6 +68,7 @@ public sealed unsafe partial class PdfDocument : IDisposable
         PageCount = Math.Min(Native.FPDF_GetPageCount(handle), MaxPages);
         PageSizes = new Size[PageCount];
         PageLabels = new string?[PageCount];
+        _searchTexts = new string?[PageCount];
         for (int i = 0; i < PageCount; i++)
         {
             FS_SIZEF s;
@@ -402,6 +407,12 @@ public sealed unsafe partial class PdfDocument : IDisposable
                 }
             }
 
+            // The viewer reads the text of the pages it shows, so keep it for search too.
+            if (_searchTexts[index] is null)
+                KeepSearchText(index, string.Create(count, codePoints, static (chars, cps) =>
+                {
+                    for (int i = 0; i < chars.Length; i++) chars[i] = SearchChar((uint)cps[i]);
+                }));
             var (ordered, orderedBoxes, map) = TextLayout.ToReadingOrder(codePoints, boxes);
             return new PageText
             {
@@ -710,81 +721,74 @@ public sealed unsafe partial class PdfDocument : IDisposable
 
     // ---------------------------------------------------------------- search
 
-    public Task<List<SearchHit>> SearchPageAsync(int index, string query, bool matchCase, bool wholeWords, CancellationToken token)
+    /// <summary>
+    /// A page's characters for <see cref="TextSearch"/>, one per PDFium character index. Read on the first
+    /// search and kept, as loading a page and its text is nearly all of what searching it costs.
+    /// </summary>
+    public Task<string> GetSearchTextAsync(int index, CancellationToken token, WorkPriority priority = WorkPriority.Background)
     {
+        if (Volatile.Read(ref _searchTexts[index]) is { } cached) return Task.FromResult(cached);
         return PdfWorker.Run(() =>
         {
-            var hits = new List<SearchHit>();
-            if (_disposed || string.IsNullOrEmpty(query)) return hits;
-            IntPtr page = GetPage(index);
-            IntPtr text = Native.FPDFText_LoadPage(page);
-            if (text == IntPtr.Zero) return hits;
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            if (_searchTexts[index] is { } text) return text;
+            // Reuse the page if it's open, but don't add it to the cache: a search would push out the pages on screen.
+            IntPtr page = IntPtr.Zero;
+            foreach (var (i, p) in _pages)
+            {
+                if (i == index) { page = p; break; }
+            }
+            bool owned = page == IntPtr.Zero;
+            if (owned) page = Native.FPDF_LoadPage(_handle, index);
             try
             {
-                uint flags = (matchCase ? Native.FPDF_MATCHCASE : 0) | (wholeWords ? Native.FPDF_MATCHWHOLEWORD : 0);
-                fixed (char* q = query + "\0")
-                {
-                    IntPtr search = Native.FPDFText_FindStart(text, q, flags, 0);
-                    if (search == IntPtr.Zero) return hits;
-                    int total = Native.FPDFText_CountChars(text);
-                    while (Native.FPDFText_FindNext(search) != 0 && hits.Count < 10000)
-                    {
-                        int start = Native.FPDFText_GetSchResultIndex(search);
-                        int length = Native.FPDFText_GetSchCount(search);
-                        hits.Add(new SearchHit
-                        {
-                            PageIndex = index,
-                            CharIndex = start,
-                            Length = length,
-                            Before = ReadContext(text, Math.Max(0, start - 40), start, true),
-                            Match = ReadContext(text, start, start + length, false),
-                            After = ReadContext(text, start + length, Math.Min(total, start + length + 60), false),
-                        });
-                    }
-                    Native.FPDFText_FindClose(search);
-                }
+                text = page == IntPtr.Zero ? "" : ReadSearchText(page);
             }
             finally
             {
-                Native.FPDFText_ClosePage(text);
+                if (owned && page != IntPtr.Zero) Native.FPDF_ClosePage(page);
             }
-            return hits;
-        }, WorkPriority.Background, token);
+            KeepSearchText(index, text);
+            return text;
+        }, priority, token);
     }
 
-    private static string ReadContext(IntPtr text, int start, int end, bool trimStart)
+    /// <summary>Characters in the whole document, estimated from the pages read for search so far; null before any are.</summary>
+    public long? EstimatedTextLength
     {
-        var sb = new StringBuilder();
-        bool lastSpace = false;
-        for (int i = start; i < end; i++)
+        get
         {
-            uint cp = Native.FPDFText_GetUnicode(text, i);
-            // Bidi overrides would reorder the rest of the result row, see LaunchPolicy.StripBidiControls.
-            if (cp is 0xFFFE or 2 or 0 or (>= 0x202A and <= 0x202E) or (>= 0x2066 and <= 0x2069)) continue;
-            if (cp <= 32 || cp == 0xA0)
-            {
-                if (!lastSpace) sb.Append(' ');
-                lastSpace = true;
-                continue;
-            }
-            lastSpace = false;
-            // UTF-16 code units: append surrogates only as complete pairs.
-            if (cp is >= 0xD800 and <= 0xDBFF)
-            {
-                if (i + 1 < end && Native.FPDFText_GetUnicode(text, i + 1) is >= 0xDC00 and <= 0xDFFF)
-                    sb.Append((char)cp).Append((char)Native.FPDFText_GetUnicode(text, ++i));
-                continue;
-            }
-            if (cp <= 0xFFFF && cp is not (>= 0xDC00 and <= 0xDFFF)) sb.Append((char)cp);
+            int pages = Volatile.Read(ref _searchTextPages);
+            return pages == 0 ? null : Interlocked.Read(ref _searchTextChars) * PageCount / pages;
         }
-        var s = sb.ToString();
-        if (trimStart && start > 0)
-        {
-            int space = s.IndexOf(' ');
-            if (space >= 0 && space < s.Length - 1 && s.Length > 30) s = s[(space + 1)..];
-        }
-        return s;
     }
+
+    private void KeepSearchText(int index, string text)
+    {
+        Volatile.Write(ref _searchTexts[index], text);
+        Interlocked.Add(ref _searchTextChars, text.Length);
+        Interlocked.Increment(ref _searchTextPages);
+    }
+
+    private static string ReadSearchText(IntPtr page)
+    {
+        IntPtr text = Native.FPDFText_LoadPage(page);
+        if (text == IntPtr.Zero) return "";
+        try
+        {
+            // FPDFText_GetText would be one call, but it leaves out some characters, so its indexes drift from PDFium's.
+            return string.Create(Math.Max(0, Native.FPDFText_CountChars(text)), text, static (chars, handle) =>
+            {
+                for (int i = 0; i < chars.Length; i++) chars[i] = SearchChar(Native.FPDFText_GetUnicode(handle, i));
+            });
+        }
+        finally
+        {
+            Native.FPDFText_ClosePage(text);
+        }
+    }
+
+    private static char SearchChar(uint cp) => cp <= 0xFFFF ? (char)cp : '\uFFFD';
 
     // ---------------------------------------------------------------- outline, attachments, metadata
 
