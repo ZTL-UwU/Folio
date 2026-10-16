@@ -562,7 +562,12 @@ public sealed partial class MainWindow : Window
         AppTitleBar.RightHeader = null;
     }
 
-    private void OnSearchDebounceTick(DispatcherQueueTimer sender, object args) => StartSearch(SearchBox.Text);
+    private void OnSearchDebounceTick(DispatcherQueueTimer sender, object args)
+    {
+        // A space typed after the query leaves it as it was: searching again would move back to the page's first result.
+        if (_searchQuery.Length > 0 && SearchBox.Text.Trim() == _searchQuery && CurrentSearchOptions() == _searchOptions) return;
+        StartSearch(SearchBox.Text);
+    }
     private void OnReloadDebounceTick(DispatcherQueueTimer sender, object args) => OnFileChangedOnDisk();
     private void OnHintTimerTick(DispatcherQueueTimer sender, object args) => FullscreenHint.Opacity = 0;
 
