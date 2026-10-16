@@ -84,7 +84,7 @@ internal static class TextSearch
                 }
                 c = '-';
             }
-            if (c is '\0' or (>= '\u200B' and <= '\u200F') or (>= '\u202A' and <= '\u202E') or (>= '\u2060' and <= '\u2069') or '\uFEFF') continue;
+            if (IsInvisible(c)) continue;
             if (c <= ' ' || char.IsWhiteSpace(c))
             {
                 if (n > 0 && chars[n - 1] == ' ') continue;
@@ -107,6 +107,56 @@ internal static class TextSearch
     }
 
     private static bool IsHyphenMarker(char c) => c is '\u0002' or '\uFFFE' or '\u00AD';
+
+    private static bool IsInvisible(char c) =>
+        c is '\0' or (>= '\u200B' and <= '\u200F') or (>= '\u202A' and <= '\u202E') or (>= '\u2060' and <= '\u2069') or '\uFEFF';
+
+    /// <summary>Most characters a query taken from selected text keeps.</summary>
+    public const int MaxQueryLength = 200;
+
+    /// <summary>
+    /// A query that finds <paramref name="text"/>, a run of a page's search text: on one line, with words hyphenated
+    /// across lines joined or hyphenated as <see cref="Fold"/> reads them, and cut to <see cref="MaxQueryLength"/>
+    /// between characters (and between words, with <see cref="SearchOptions.WholeWords"/>).
+    /// </summary>
+    public static string QueryFor(string text, SearchOptions options)
+    {
+        bool joinHyphenated = options.HasFlag(SearchOptions.JoinHyphenated);
+        var sb = new StringBuilder(Math.Min(text.Length, MaxQueryLength));
+        bool cutInWord = false;
+        for (int i = 0; i < text.Length; i++)
+        {
+            char c = text[i];
+            if (IsHyphenMarker(c))
+            {
+                if (joinHyphenated)
+                {
+                    while (i + 1 < text.Length && text[i + 1] is '\r' or '\n') i++;
+                    continue;
+                }
+                c = '-';
+            }
+            if (IsInvisible(c)) continue;
+            if (c <= ' ' || char.IsWhiteSpace(c))
+            {
+                if (sb.Length == 0 || sb[^1] == ' ') continue;
+                c = ' ';
+            }
+            bool pair = char.IsHighSurrogate(c) && i + 1 < text.Length && char.IsLowSurrogate(text[i + 1]);
+            if (!pair && char.IsSurrogate(c)) continue;
+            if (sb.Length + (pair ? 2 : 1) > MaxQueryLength)
+            {
+                cutInWord = sb.Length > 0 && IsWordChar(sb[^1]) && IsWordChar(c);
+                break;
+            }
+            sb.Append(c);
+            if (pair) sb.Append(text[++i]);
+        }
+        // A word cut short wouldn't match as a whole word.
+        if (cutInWord && options.HasFlag(SearchOptions.WholeWords) && sb.ToString().LastIndexOf(' ') is > 0 and var space) sb.Length = space;
+        while (sb.Length > 0 && sb[^1] == ' ') sb.Length--;
+        return sb.ToString();
+    }
 
     /// <summary>Whether a character is part of a word, a hyphen marker counting as the hyphen it stands for.</summary>
     private static bool IsWordChar(char c) => IsHyphenMarker(c) || PageText.IsWordCodePoint(c);

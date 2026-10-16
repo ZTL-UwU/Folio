@@ -147,11 +147,7 @@ public sealed partial class MainWindow : Window
         Viewer.ViewSettingsChanged += (_, _) => OnViewSettingsChanged();
         Viewer.AnnotationsChanged += (_, page) => OnAnnotationsChanged(page);
         Viewer.EditFailed += (_, message) => ShowMessage("Unable to change annotations", message, InfoBarSeverity.Error);
-        Viewer.SearchRequested += (_, text) =>
-        {
-            SearchBox.Text = text;
-            StartSearch(text);
-        };
+        Viewer.SearchRequested += async (_, _) => await SearchForSelectionAsync();
 
         // The mouse back button leaves Settings, as in other apps.
         SettingsView.PointerPressed += (_, e) =>
@@ -2031,7 +2027,7 @@ public sealed partial class MainWindow : Window
             || key == VirtualKey.W && !AppState.Preferences.RememberRecent;
     }
 
-    private void FocusSearch()
+    private async void FocusSearch()
     {
         if (_settingsOpen) return;
         if (_document is null)
@@ -2042,10 +2038,30 @@ public sealed partial class MainWindow : Window
             if (RecentSearchBox.FindDescendant<TextBox>() is { } recentBox) recentBox.SelectAll();
             return;
         }
+        // Selected text becomes the query, as in browsers.
+        if (!await SearchForSelectionAsync()) return;
         ShowSearchPanel();
         SearchBox.UpdateLayout();
         SearchBox.Focus(FocusState.Keyboard);
         if (SearchBox.FindDescendant<TextBox>() is { } box) box.SelectAll();
+    }
+
+    /// <summary>
+    /// Searches for the selected text, if any. False when the document closed or changed, or Settings opened, while
+    /// its text was read, so search shouldn't open.
+    /// </summary>
+    private async Task<bool> SearchForSelectionAsync()
+    {
+        var document = _document;
+        if (document is null || !Viewer.HasSelection) return document is not null;
+        var options = CurrentSearchOptions();
+        string query = await Viewer.GetSelectedQueryAsync(options);
+        if (_document != document || _settingsOpen) return false;
+        if (query.Length == 0) return true;
+        SearchBox.Text = query;
+        // Searching again for the same query would move back to the page's first result.
+        if (query != _searchQuery || CurrentSearchOptions() != _searchOptions || _searchResultsStale) StartSearch(query);
+        return true;
     }
 }
 

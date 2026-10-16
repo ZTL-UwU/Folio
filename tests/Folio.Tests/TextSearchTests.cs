@@ -55,6 +55,54 @@ public sealed class TextSearchTests
         Assert.Empty(Find("an exam-ple of", "ple", wholeWords: true, options: notJoined));
     }
 
+    [Theory]
+    [InlineData("exam\u0002\r\nple")]
+    [InlineData("docu￾\r\nment")]
+    [InlineData("exam\u0002ple")]
+    public void QueryForSelectedText_FindsWordsHyphenatedAcrossLines(string text)
+    {
+        const SearchOptions notJoined = SearchOptions.AnyQuote | SearchOptions.AnyDash;
+        Assert.Single(Find(text, TextSearch.QueryFor(text, Defaults)));
+        Assert.Single(Find(text, TextSearch.QueryFor(text, notJoined), options: notJoined));
+        Assert.Equal("document", TextSearch.QueryFor("docu￾\r\nment", Defaults));
+    }
+
+    [Fact]
+    public void QueryForSelectedText_IsOnOneLine()
+    {
+        Assert.Equal("search engine", TextSearch.QueryFor("\r\n search\r\nengine \r\n", Defaults));
+    }
+
+    [Fact]
+    public void QueryForSelectedText_IsCutBetweenCharacters()
+    {
+        // A math italic letter, two UTF-16 units, across the cut.
+        string text = new string('a', TextSearch.MaxQueryLength - 1) + "\U0001D44E" + "b";
+        string query = TextSearch.QueryFor(text, Defaults);
+        Assert.Equal(new string('a', TextSearch.MaxQueryLength - 1), query);
+        Assert.Single(Find(text, query));
+    }
+
+    [Fact]
+    public void QueryForSelectedText_LeavesNoSpaceAtTheCut()
+    {
+        string text = new string('a', TextSearch.MaxQueryLength - 1) + " bcd";
+        // As StartSearch keeps it, so Ctrl+F again doesn't search again.
+        string query = TextSearch.QueryFor(text, Defaults);
+        Assert.Equal(query.Trim(), query);
+        Assert.Equal(TextSearch.MaxQueryLength - 1, query.Length);
+    }
+
+    [Fact]
+    public void QueryForSelectedText_IsCutBetweenWords_ForWholeWords()
+    {
+        string text = new string('a', TextSearch.MaxQueryLength - 10) + " bcdefghijklmnop";
+        string query = TextSearch.QueryFor(text, Defaults | SearchOptions.WholeWords);
+        Assert.Equal(new string('a', TextSearch.MaxQueryLength - 10), query);
+        Assert.Single(Find(text, query, wholeWords: true));
+        Assert.Equal(TextSearch.MaxQueryLength, TextSearch.QueryFor(text, Defaults).Length);
+    }
+
     [Fact]
     public void CurlyQuotesAndPlainOnesMatchEachOther_UnlessTurnedOff()
     {
