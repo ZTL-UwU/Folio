@@ -1,6 +1,7 @@
 using System.Buffers.Binary;
 using System.ComponentModel;
 using System.Runtime.InteropServices;
+using Folio.Services;
 
 namespace Folio.Printing;
 
@@ -295,7 +296,7 @@ internal static unsafe partial class Printers
                 double w = sizes[2 * k] * 72 / 254.0, h = sizes[2 * k + 1] * 72 / 254.0;
                 if (w <= 0 || h <= 0) continue;
                 string label = named ? new string(n + k * 64, 0, 64).TrimEnd('\0').Trim() : "";
-                if (label.Length == 0) label = $"{sizes[2 * k] / 10.0:0.#} × {sizes[2 * k + 1] / 10.0:0.#} mm";
+                if (label.Length == 0) label = Strings.Format("PaperSizeMillimeters", sizes[2 * k] / 10.0, sizes[2 * k + 1] / 10.0);
                 papers.Add(new PaperSize(ids[k], label, w, h));
             }
         }
@@ -305,16 +306,17 @@ internal static unsafe partial class Printers
     private static (string Text, bool Problem) DescribeStatus(uint status, uint attributes, uint jobs)
     {
         const uint PRINTER_ATTRIBUTE_WORK_OFFLINE = 0x400;
+        // Resource names.
         (uint Flag, string Text)[] problems =
         [
-            (0x80, "Offline"), (0x1000, "Not available"), (0x1, "Paused"), (0x8, "Paper jam"), (0x10, "Out of paper"),
-            (0x40, "Paper problem"), (0x40000, "Out of toner or ink"), (0x400000, "Door open"), (0x100000, "Needs attention"),
-            (0x2, "Error"),
+            (0x80, "PrinterOffline"), (0x1000, "PrinterNotAvailable"), (0x1, "PrinterPaused"), (0x8, "PrinterPaperJam"), (0x10, "PrinterOutOfPaper"),
+            (0x40, "PrinterPaperProblem"), (0x40000, "PrinterOutOfToner"), (0x400000, "PrinterDoorOpen"), (0x100000, "PrinterNeedsAttention"),
+            (0x2, "PrinterError"),
         ];
-        string? problem = (attributes & PRINTER_ATTRIBUTE_WORK_OFFLINE) != 0 ? "Offline" : null;
+        string? problem = (attributes & PRINTER_ATTRIBUTE_WORK_OFFLINE) != 0 ? "PrinterOffline" : null;
         problem ??= problems.FirstOrDefault(p => (status & p.Flag) != 0).Text;
-        string text = problem ?? ((status & 0x20000) != 0 ? "Ready, toner or ink is low" : "Ready");
-        if (jobs > 0) text += jobs == 1 ? " · 1 document waiting" : $" · {jobs} documents waiting";
+        string text = Strings.Get(problem ?? ((status & 0x20000) != 0 ? "PrinterReadyTonerLow" : "PrinterReady"));
+        if (jobs > 0) text += " · " + Strings.Plural("PrinterJobs", jobs);
         return (text, problem is not null);
     }
 

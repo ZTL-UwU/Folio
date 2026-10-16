@@ -146,7 +146,7 @@ public sealed partial class MainWindow : Window
         Viewer.ZoomChanged += (_, _) => UpdateZoomText();
         Viewer.ViewSettingsChanged += (_, _) => OnViewSettingsChanged();
         Viewer.AnnotationsChanged += (_, page) => OnAnnotationsChanged(page);
-        Viewer.EditFailed += (_, message) => ShowMessage("Unable to change annotations", message, InfoBarSeverity.Error);
+        Viewer.EditFailed += (_, message) => ShowMessage(Strings.Get("EditFailedTitle"), message, InfoBarSeverity.Error);
         Viewer.SearchRequested += async (_, _) => await SearchForSelectionAsync();
 
         // The mouse back button leaves Settings, as in other apps.
@@ -220,7 +220,7 @@ public sealed partial class MainWindow : Window
             await _loaded.Task;
             if (!File.Exists(path))
             {
-                ShowMessage("File not found", $"“{Path.GetFileName(path)}” could not be found. It may have been moved or deleted.", InfoBarSeverity.Warning);
+                ShowMessage(Strings.Get("FileNotFoundTitle"), Strings.Format("FileNotFoundMessage", Path.GetFileName(path)), InfoBarSeverity.Warning);
                 return;
             }
             if (IsShowing(path)) return;
@@ -234,7 +234,7 @@ public sealed partial class MainWindow : Window
             }
             catch (Exception ex) when (ex is IOException or InvalidDataException or UnauthorizedAccessException)
             {
-                ShowMessage("Unable to open document", ex.Message, InfoBarSeverity.Error);
+                ShowMessage(Strings.Get("OpenFailedTitle"), ex.Message, InfoBarSeverity.Error);
                 return;
             }
             finally
@@ -294,8 +294,8 @@ public sealed partial class MainWindow : Window
     internal void ReportUnexpectedError()
     {
         if (Root.XamlRoot is null) return;
-        ShowMessage("Something went wrong",
-            $"Folio ran into an unexpected problem. If something stops working, save your annotations and restart Folio. Details are in {Path.Combine(AppState.Folder, "errors.log")}.",
+        ShowMessage(Strings.Get("UnexpectedErrorTitle"),
+            Strings.Format("UnexpectedErrorMessage", Path.Combine(AppState.Folder, "errors.log")),
             InfoBarSeverity.Error);
     }
 
@@ -402,7 +402,7 @@ public sealed partial class MainWindow : Window
         }
         catch (Exception ex) when (ex is IOException or InvalidDataException or UnauthorizedAccessException)
         {
-            ShowMessage("Unable to reload document", ex.Message, InfoBarSeverity.Error);
+            ShowMessage(Strings.Get("ReloadFailedTitle"), ex.Message, InfoBarSeverity.Error);
         }
     }
 
@@ -456,13 +456,13 @@ public sealed partial class MainWindow : Window
             _ = ReloadAsync();
             return;
         }
-        var reload = new Button { Content = "Reload" };
+        var reload = new Button { Content = Strings.Get("ReloadButton") };
         reload.Click += async (_, _) =>
         {
             Notification.IsOpen = false;
             await ReloadAsync();
         };
-        ShowMessage("The document changed on disk", "Reloading will discard your unsaved annotations.", InfoBarSeverity.Warning, reload);
+        ShowMessage(Strings.Get("ChangedOnDiskTitle"), Strings.Get("ChangedOnDiskMessage"), InfoBarSeverity.Warning, reload);
     }
 
     private async Task<bool> ConfirmDiscardChangesAsync()
@@ -471,11 +471,11 @@ public sealed partial class MainWindow : Window
         await Viewer.CommitPendingEditsAsync();
         if (_document is not { IsModified: true }) return true;
         var dialog = Dialogs.Create(Root.XamlRoot);
-        dialog.Title = "Save changes to a copy?";
-        dialog.Content = $"“{Path.GetFileName(_document.FilePath)}” has unsaved annotations. If you don't save a copy, they will be lost.";
-        dialog.PrimaryButtonText = "Save a copy";
-        dialog.SecondaryButtonText = "Don't save";
-        dialog.CloseButtonText = "Cancel";
+        dialog.Title = Strings.Get("UnsavedTitle");
+        dialog.Content = Strings.Format("UnsavedMessage", Path.GetFileName(_document.FilePath));
+        dialog.PrimaryButtonText = Strings.Get("UnsavedSave");
+        dialog.SecondaryButtonText = Strings.Get("UnsavedDontSave");
+        dialog.CloseButtonText = Strings.Get("Cancel");
         dialog.DefaultButton = ContentDialogButton.Primary;
         var result = await dialog.ShowAsync();
         if (result == ContentDialogResult.None) return false;
@@ -593,23 +593,23 @@ public sealed partial class MainWindow : Window
     /// </summary>
     private async Task<(PdfDocument? Document, string? Password)> UnlockAsync(string path, bool wrongPassword)
     {
-        var box = new PasswordBox { PlaceholderText = "Password" };
+        var box = new PasswordBox { PlaceholderText = Strings.Get("PasswordPlaceholder") };
         var wrong = new TextBlock
         {
-            Text = "The password is incorrect. Try again.",
+            Text = Strings.Get("PasswordWrong"),
             Style = (Style)Application.Current.Resources["CriticalTextBlockStyle"],
             Visibility = wrongPassword ? Visibility.Visible : Visibility.Collapsed,
         };
         // Fixed width so a long file name wraps instead of widening the dialog past the password box.
         var panel = new StackPanel { Spacing = 12, Width = 360 };
-        panel.Children.Add(new TextBlock { Text = $"“{Path.GetFileName(path)}” is protected. Enter the password to open it.", TextWrapping = TextWrapping.Wrap });
+        panel.Children.Add(new TextBlock { Text = Strings.Format("PasswordMessage", Path.GetFileName(path)), TextWrapping = TextWrapping.Wrap });
         panel.Children.Add(box);
         panel.Children.Add(wrong);
         var dialog = Dialogs.Create(Root.XamlRoot);
-        dialog.Title = "Password required";
+        dialog.Title = Strings.Get("PasswordTitle");
         dialog.Content = panel;
-        dialog.PrimaryButtonText = "Unlock";
-        dialog.CloseButtonText = "Cancel";
+        dialog.PrimaryButtonText = Strings.Get("PasswordUnlock");
+        dialog.CloseButtonText = Strings.Get("Cancel");
         dialog.DefaultButton = ContentDialogButton.Primary;
 
         PdfDocument? document = null;
@@ -704,7 +704,7 @@ public sealed partial class MainWindow : Window
         }
         string name = DisplayName(_document);
         AppTitleBar.Title = name;
-        AppTitleBar.Subtitle = _document.IsModified ? "Edited" : "";
+        AppTitleBar.Subtitle = _document.IsModified ? Strings.Get("TitleEdited") : "";
         AppTitleBar.InvalidateMeasure();
         Title = $"{(_document.IsModified ? "• " : "")}{name} – Folio";
     }
@@ -753,8 +753,8 @@ public sealed partial class MainWindow : Window
         OddLeftItem.IsChecked = Viewer.OddPagesLeft;
         OddLeftItem.IsEnabled = Viewer.IsDual;
         InvertItem.IsChecked = Viewer.IsInverted;
-        CloseItem.Text = AppState.Preferences.RememberRecent ? "Close document" : "Close window";
-        FullscreenItem.Text = _fullscreen ? "Exit full screen" : "Full screen";
+        CloseItem.Text = Strings.Get(AppState.Preferences.RememberRecent ? "CloseDocument" : "CloseWindow");
+        FullscreenItem.Text = Strings.Get(_fullscreen ? "ExitFullScreen" : "FullScreen");
     }
 
     private void ShowMessage(string title, string message, InfoBarSeverity severity, ButtonBase? action = null)
@@ -1116,9 +1116,9 @@ public sealed partial class MainWindow : Window
     {
         if (sender is not FrameworkElement { DataContext: AnnotationItem item } element) return;
         var menu = new MenuFlyout();
-        var show = new MenuFlyoutItem { Text = "Show", Icon = new FontIcon { Glyph = "\uE8A7" } };
+        var show = new MenuFlyoutItem { Text = Strings.Get("AnnotationShow"), Icon = new FontIcon { Glyph = "\uE8A7" } };
         show.Click += (_, _) => Viewer.RevealAnnotation(item.Annotation);
-        var delete = new MenuFlyoutItem { Text = "Delete", Icon = new FontIcon { Glyph = "\uE74D" } };
+        var delete = new MenuFlyoutItem { Text = Strings.Get("Delete"), Icon = new FontIcon { Glyph = "\uE74D" } };
         delete.Click += (_, _) => Viewer.DeleteAnnotation(item.Annotation);
         menu.Items.Add(show);
         menu.Items.Add(delete);
@@ -1158,9 +1158,9 @@ public sealed partial class MainWindow : Window
     {
         if (sender is not FrameworkElement { DataContext: AttachmentItem item } element) return;
         var menu = new MenuFlyout();
-        var open = new MenuFlyoutItem { Text = "Open", Icon = new FontIcon { Glyph = "\uE8E5" } };
+        var open = new MenuFlyoutItem { Text = Strings.Get("Open"), Icon = new FontIcon { Glyph = "\uE8E5" } };
         open.Click += (_, _) => OpenAttachment(item);
-        var save = new MenuFlyoutItem { Text = "Save as…", Icon = new FontIcon { Glyph = "\uE792" } };
+        var save = new MenuFlyoutItem { Text = Strings.Get("SaveAs"), Icon = new FontIcon { Glyph = "\uE792" } };
         save.Click += (_, _) => SaveAttachment(item);
         menu.Items.Add(open);
         menu.Items.Add(save);
@@ -1176,17 +1176,17 @@ public sealed partial class MainWindow : Window
         var risk = LaunchPolicy.Classify(name);
         if (risk == AttachmentRisk.Blocked)
         {
-            var save = new Button { Content = "Save as…" };
+            var save = new Button { Content = Strings.Get("SaveAs") };
             save.Click += (_, _) =>
             {
                 Notification.IsOpen = false;
                 SaveAttachment(item);
             };
             string saveName = LaunchPolicy.SaveFileName(name);
-            ShowMessage("Folio won't open this attachment",
+            ShowMessage(Strings.Get("AttachmentBlockedTitle"),
                 saveName == name
-                    ? $"“{name}” is a program, script or shortcut that could harm your computer. You can save it and check it before opening it."
-                    : $"“{name}” is a shortcut that could harm your computer, even unopened. It can be saved as “{saveName}” so Windows ignores it.",
+                    ? Strings.Format("AttachmentBlockedMessage", name)
+                    : Strings.Format("AttachmentBlockedShortcutMessage", name, saveName),
                 InfoBarSeverity.Warning, save);
             return;
         }
@@ -1201,8 +1201,8 @@ public sealed partial class MainWindow : Window
             if (!LaunchPolicy.MarkAsUntrusted(path) && risk != AttachmentRisk.Pdf)
             {
                 AttachmentFiles.Delete(dir);
-                ShowMessage("Unable to open attachment",
-                    $"Windows couldn't mark “{name}” as coming from the internet, so Folio won't open it. Try saving it instead.",
+                ShowMessage(Strings.Get("AttachmentOpenFailedTitle"),
+                    Strings.Format("AttachmentNoZoneMessage", name),
                     InfoBarSeverity.Warning);
                 return;
             }
@@ -1217,26 +1217,26 @@ public sealed partial class MainWindow : Window
             _attachmentFolders.Add(dir);
             var file = await Windows.Storage.StorageFile.GetFileFromPathAsync(path);
             if (!await Launcher.LaunchFileAsync(file, new LauncherOptions { DisplayApplicationPicker = false }))
-                ShowMessage("Unable to open attachment", $"Windows couldn't open “{name}”. Try saving it instead.", InfoBarSeverity.Warning);
+                ShowMessage(Strings.Get("AttachmentOpenFailedTitle"), Strings.Format("AttachmentLaunchFailedMessage", name), InfoBarSeverity.Warning);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ObjectDisposedException or COMException)
         {
-            ShowMessage("Unable to open attachment", ex.Message, InfoBarSeverity.Error);
+            ShowMessage(Strings.Get("AttachmentOpenFailedTitle"), ex.Message, InfoBarSeverity.Error);
         }
     }
 
     private async Task<bool> ConfirmOpenAttachmentAsync(string name)
     {
         var dialog = Dialogs.Create(Root.XamlRoot);
-        dialog.Title = "Open attachment?";
+        dialog.Title = Strings.Get("AttachmentConfirmTitle");
         dialog.Content = new TextBlock
         {
-            Text = $"“{name}” will open in the app Windows uses for this type of file. Attachments can contain harmful content, so only open it if you trust where this document came from.",
+            Text = Strings.Format("AttachmentConfirmMessage", name),
             TextWrapping = TextWrapping.Wrap,
             Width = 360,
         };
-        dialog.PrimaryButtonText = "Open";
-        dialog.CloseButtonText = "Cancel";
+        dialog.PrimaryButtonText = Strings.Get("Open");
+        dialog.CloseButtonText = Strings.Get("Cancel");
         dialog.DefaultButton = ContentDialogButton.Close;
         return await dialog.ShowAsync() == ContentDialogResult.Primary;
     }
@@ -1252,20 +1252,20 @@ public sealed partial class MainWindow : Window
             SuggestedStartLocation = PickerLocationId.DocumentsLibrary,
         };
         string ext = Path.GetExtension(name);
-        picker.FileTypeChoices.Add(string.IsNullOrEmpty(ext) ? "File" : ext.TrimStart('.').ToUpperInvariant() + " file", [string.IsNullOrEmpty(ext) ? "." : ext]);
+        picker.FileTypeChoices.Add(string.IsNullOrEmpty(ext) ? Strings.Get("FileTypeAny") : Strings.Format("FileTypeExtension", ext.TrimStart('.').ToUpperInvariant()), [string.IsNullOrEmpty(ext) ? "." : ext]);
         var result = await picker.PickSaveFileAsync();
         if (result is null) return;
         try
         {
             await File.WriteAllBytesAsync(result.Path, await document.GetAttachmentDataAsync(item.Attachment));
             if (!LaunchPolicy.MarkAsUntrusted(result.Path))
-                ShowMessage("Attachment saved without a security mark",
-                    $"This location can't record that “{Path.GetFileName(result.Path)}” came from the internet, so Windows won't warn you when it's opened.",
+                ShowMessage(Strings.Get("AttachmentNoZoneSavedTitle"),
+                    Strings.Format("AttachmentNoZoneSavedMessage", Path.GetFileName(result.Path)),
                     InfoBarSeverity.Warning);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ObjectDisposedException)
         {
-            ShowMessage("Unable to save attachment", ex.Message, InfoBarSeverity.Error);
+            ShowMessage(Strings.Get("AttachmentSaveFailedTitle"), ex.Message, InfoBarSeverity.Error);
         }
     }
 
@@ -1336,7 +1336,7 @@ public sealed partial class MainWindow : Window
         }
         var cts = _searchCts = new CancellationTokenSource();
         var document = _document;
-        SearchStatus.Text = "Searching…";
+        SearchStatus.Text = Strings.Get("Searching");
         var options = _searchOptions = CurrentSearchOptions();
         _searchResultsStale = true;
         int start = Viewer.CurrentPage;
@@ -1387,7 +1387,7 @@ public sealed partial class MainWindow : Window
             ListSearchResults(pending, start);
             // Nothing from the current page on: wrap round to the first.
             if (_searchIndex < 0 && _searchItems.Count > 0) SelectSearchResult(0);
-            SearchStatus.Text = found == 0 ? "No results found" : ResultText(found);
+            SearchStatus.Text = found == 0 ? Strings.Get("NoResults") : ResultText(found);
         }
         catch (Exception ex) when (ex is OperationCanceledException or ObjectDisposedException)
         {
@@ -1477,7 +1477,7 @@ public sealed partial class MainWindow : Window
         }
     }
 
-    private static string ResultText(int count) => count == 1 ? "1 result" : $"{count:N0} results";
+    private static string ResultText(int count) => Strings.Plural("ResultCount", count);
 
     private void CancelSearch(bool clearText)
     {
@@ -1593,13 +1593,13 @@ public sealed partial class MainWindow : Window
         var document = _document;
         var picker = new FileSavePicker(AppWindow.Id)
         {
-            SuggestedFileName = Path.GetFileNameWithoutExtension(document.FilePath) + (document.IsModified ? " (annotated)" : " (copy)"),
+            SuggestedFileName = Path.GetFileNameWithoutExtension(document.FilePath) + Strings.Get(document.IsModified ? "CopySuffixAnnotated" : "CopySuffix"),
             SuggestedStartLocation = PickerLocationId.DocumentsLibrary,
         };
         // Next to the original, unless that's a temporary folder (such as an opened attachment's).
         string? folder = Path.GetDirectoryName(document.FilePath);
         if (folder is not null && Directory.Exists(folder) && !IsTemporaryFolder(folder)) picker.SuggestedFolder = folder;
-        picker.FileTypeChoices.Add("PDF document", [".pdf"]);
+        picker.FileTypeChoices.Add(Strings.Get("FileTypePdf"), [".pdf"]);
         var result = await picker.PickSaveFileAsync();
         if (result is null || _document != document) return false;
         bool replacing = string.Equals(Path.GetFullPath(result.Path), Path.GetFullPath(document.FilePath), StringComparison.OrdinalIgnoreCase);
@@ -1619,11 +1619,11 @@ public sealed partial class MainWindow : Window
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            ShowMessage("Unable to save", ex.Message, InfoBarSeverity.Error);
+            ShowMessage(Strings.Get("SaveFailedTitle"), ex.Message, InfoBarSeverity.Error);
             return false;
         }
         UpdateTitle();
-        if (!replacing) ShowMessage("Copy saved", $"Saved to “{Path.GetFileName(result.Path)}”.", InfoBarSeverity.Success);
+        if (!replacing) ShowMessage(Strings.Get("CopySavedTitle"), Strings.Format("CopySavedMessage", Path.GetFileName(result.Path)), InfoBarSeverity.Success);
         return true;
     }
 
@@ -1641,7 +1641,7 @@ public sealed partial class MainWindow : Window
         await dialog.ShowAsync();
         if (dialog.UseSystemDialog) await PrintWithSystemDialogAsync();
         else if (dialog.FailedPages > 0)
-            ShowMessage("Printing problem", dialog.FailedPages == 1 ? "One page couldn't be printed and was left blank." : $"{dialog.FailedPages} pages couldn't be printed and were left blank.", InfoBarSeverity.Warning);
+            ShowMessage(Strings.Get("PrintProblemTitle"), Strings.Plural("PrintFailedPagesBlank", dialog.FailedPages), InfoBarSeverity.Warning);
     }
 
     private async Task PrintWithSystemDialogAsync()
@@ -1650,11 +1650,11 @@ public sealed partial class MainWindow : Window
         try
         {
             await PrintService.PrintAsync(this, _document, DisplayName(_document), Viewer.IsInverted,
-                message => DispatcherQueue.TryEnqueue(() => ShowMessage("Printing problem", message, InfoBarSeverity.Warning)));
+                message => DispatcherQueue.TryEnqueue(() => ShowMessage(Strings.Get("PrintProblemTitle"), message, InfoBarSeverity.Warning)));
         }
         catch (Exception ex)
         {
-            ShowMessage("Unable to print", ex.Message, InfoBarSeverity.Error);
+            ShowMessage(Strings.Get("PrintFailedTitle"), ex.Message, InfoBarSeverity.Error);
         }
     }
 
@@ -1759,7 +1759,7 @@ public sealed partial class MainWindow : Window
             _sidebarBeforeFullscreen = _sidebarOpen;
             SetSidebarOpen(false, persist: false);
             DocumentCard.BorderThickness = new Thickness(0);
-            if (!_presenting) ShowHint("Press Esc or F11 to exit full screen");
+            if (!_presenting) ShowHint(Strings.Get("FullScreenHint"));
         }
         else
         {
@@ -1777,7 +1777,7 @@ public sealed partial class MainWindow : Window
             SetFullscreen(true);
             Viewer.SetPresentation(true);
             DocumentSurface.Background = new SolidColorBrush(Colors.Black);
-            ShowHint("Press Esc to end the presentation");
+            ShowHint(Strings.Get("PresentationHint"));
         }
         else
         {
@@ -1904,18 +1904,18 @@ public sealed partial class MainWindow : Window
     {
         if (sender is not FrameworkElement { DataContext: RecentItem item } element) return;
         var menu = new MenuFlyout();
-        var open = new MenuFlyoutItem { Text = "Open", Icon = new FontIcon { Glyph = "\uE8E5" } };
+        var open = new MenuFlyoutItem { Text = Strings.Get("Open"), Icon = new FontIcon { Glyph = "\uE8E5" } };
         open.Click += async (_, _) => await OpenAsync(item.Path);
-        var newWindow = new MenuFlyoutItem { Text = "Open in new window", Icon = new FontIcon { Glyph = "\uE8A7" } };
+        var newWindow = new MenuFlyoutItem { Text = Strings.Get("OpenInNewWindow"), Icon = new FontIcon { Glyph = "\uE8A7" } };
         newWindow.Click += async (_, _) =>
         {
             var window = new MainWindow();
             window.Activate();
             await window.OpenAsync(item.Path);
         };
-        var folder = new MenuFlyoutItem { Text = "Show in folder", Icon = new FontIcon { Glyph = "\uE838" } };
+        var folder = new MenuFlyoutItem { Text = Strings.Get("ShowInFolder"), Icon = new FontIcon { Glyph = "\uE838" } };
         folder.Click += (_, _) => ShowInFolder(item.Path);
-        var remove = new MenuFlyoutItem { Text = "Remove from list", Icon = new FontIcon { Glyph = "\uE711" } };
+        var remove = new MenuFlyoutItem { Text = Strings.Get("RemoveFromList"), Icon = new FontIcon { Glyph = "\uE711" } };
         remove.Click += (_, _) => AppState.Remove(item.Path);
         menu.Items.Add(open);
         menu.Items.Add(newWindow);
@@ -1934,7 +1934,7 @@ public sealed partial class MainWindow : Window
     {
         if (!e.DataView.Contains(StandardDataFormats.StorageItems)) return;
         e.AcceptedOperation = DataPackageOperation.Copy;
-        e.DragUIOverride.Caption = "Open";
+        e.DragUIOverride.Caption = Strings.Get("Open");
         e.DragUIOverride.IsGlyphVisible = true;
     }
 
@@ -1945,7 +1945,7 @@ public sealed partial class MainWindow : Window
         var files = items.OfType<Windows.Storage.StorageFile>().Where(f => f.FileType.Equals(".pdf", StringComparison.OrdinalIgnoreCase)).ToList();
         if (files.Count == 0)
         {
-            ShowMessage("Unsupported file", "Only PDF documents can be opened.", InfoBarSeverity.Warning);
+            ShowMessage(Strings.Get("UnsupportedFileTitle"), Strings.Get("UnsupportedFileMessage"), InfoBarSeverity.Warning);
             return;
         }
         for (int i = 1; i < files.Count; i++)

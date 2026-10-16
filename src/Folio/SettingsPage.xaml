@@ -23,15 +23,15 @@
     <ScrollViewer x:Name="Scroller">
         <StackPanel Padding="56,20,56,36" Spacing="4">
             <TextBlock
+                x:Uid="SettingsTitle"
                 AutomationProperties.HeadingLevel="Level1"
-                Style="{StaticResource TitleTextBlockStyle}"
-                Text="Settings" />
+                Style="{StaticResource TitleTextBlockStyle}" />
 
             <!--  Appearance  -->
             <TextBlock
+                x:Uid="SettingsAppearance"
                 AutomationProperties.HeadingLevel="Level2"
-                Style="{StaticResource SettingsSectionHeaderStyle}"
-                Text="Appearance" />
+                Style="{StaticResource SettingsSectionHeaderStyle}" />
             <!--  Matches the cards: same height, icon and text columns  -->
             <Expander
                 x:Name="ThemeExpander"
@@ -55,10 +55,10 @@
                             Margin="0,12,16,12"
                             VerticalAlignment="Center"
                             Spacing="1">
-                            <TextBlock Text="App theme" TextWrapping="Wrap" />
+                            <TextBlock x:Uid="SettingsTheme" TextWrapping="Wrap" />
                             <TextBlock
+                                x:Uid="SettingsThemeDescription"
                                 Style="{StaticResource SecondaryCaptionTextBlockStyle}"
-                                Text="Use light or dark colors, or follow Windows."
                                 TextWrapping="Wrap" />
                         </StackPanel>
                         <TextBlock
@@ -70,72 +70,82 @@
                 </Expander.Header>
                 <RadioButtons
                     x:Name="ThemeOptions"
-                    AutomationProperties.Name="App theme"
+                    x:Uid="SettingsThemeOptions"
                     SelectionChanged="OnThemeChanged" />
             </Expander>
-            <controls:SettingsCard Description="Round the corners of pages in the viewer." Header="Rounded page corners">
+            <controls:SettingsCard x:Name="LanguageCard" x:Uid="SettingsLanguage">
+                <controls:SettingsCard.HeaderIcon>
+                    <FontIcon Glyph="&#xE774;" />
+                </controls:SettingsCard.HeaderIcon>
+                <ComboBox
+                    x:Name="LanguageBox"
+                    x:Uid="SettingsLanguageBox"
+                    MinWidth="200"
+                    SelectionChanged="OnLanguageChanged" />
+            </controls:SettingsCard>
+            <controls:SettingsCard x:Uid="SettingsCorners">
                 <controls:SettingsCard.HeaderIcon>
                     <FontIcon Glyph="&#xE7C3;" />
                 </controls:SettingsCard.HeaderIcon>
                 <ToggleSwitch
                     x:Name="CornersToggle"
-                    AutomationProperties.Name="Rounded page corners"
+                    x:Uid="SettingsCornersToggle"
                     Toggled="OnCornersToggled" />
             </controls:SettingsCard>
 
             <!--  Search  -->
             <TextBlock
+                x:Uid="SettingsSearch"
                 AutomationProperties.HeadingLevel="Level2"
-                Style="{StaticResource SettingsSectionHeaderStyle}"
-                Text="Search" />
-            <controls:SettingsCard Description="Searching example also finds exam-ple split across two lines." Header="Find words hyphenated across lines">
+                Style="{StaticResource SettingsSectionHeaderStyle}" />
+            <controls:SettingsCard x:Uid="SettingsHyphenated">
                 <controls:SettingsCard.HeaderIcon>
                     <FontIcon Glyph="&#xE751;" />
                 </controls:SettingsCard.HeaderIcon>
                 <ToggleSwitch
                     x:Name="HyphenatedToggle"
-                    AutomationProperties.Name="Find words hyphenated across lines"
+                    x:Uid="SettingsHyphenatedToggle"
                     Toggled="OnHyphenatedToggled" />
             </controls:SettingsCard>
-            <controls:SettingsCard Description="Straight and curly quotes find each other." Header="Match curly quotes">
+            <controls:SettingsCard x:Uid="SettingsQuotes">
                 <controls:SettingsCard.HeaderIcon>
                     <FontIcon Glyph="&#xE9B1;" />
                 </controls:SettingsCard.HeaderIcon>
                 <ToggleSwitch
                     x:Name="QuotesToggle"
-                    AutomationProperties.Name="Match curly quotes"
+                    x:Uid="SettingsQuotesToggle"
                     Toggled="OnQuotesToggled" />
             </controls:SettingsCard>
-            <controls:SettingsCard Description="Hyphens, dashes and minus signs find each other." Header="Match all dashes">
+            <controls:SettingsCard x:Uid="SettingsDashes">
                 <controls:SettingsCard.HeaderIcon>
                     <FontIcon Glyph="&#xE8C1;" />
                 </controls:SettingsCard.HeaderIcon>
                 <ToggleSwitch
                     x:Name="DashesToggle"
-                    AutomationProperties.Name="Match all dashes"
+                    x:Uid="SettingsDashesToggle"
                     Toggled="OnDashesToggled" />
             </controls:SettingsCard>
 
             <!--  History  -->
             <TextBlock
+                x:Uid="SettingsHistory"
                 AutomationProperties.HeadingLevel="Level2"
-                Style="{StaticResource SettingsSectionHeaderStyle}"
-                Text="History" />
-            <controls:SettingsCard Description="List opened documents on the start page and reopen them where you left off." Header="Remember recent documents">
+                Style="{StaticResource SettingsSectionHeaderStyle}" />
+            <controls:SettingsCard x:Uid="SettingsRecent">
                 <controls:SettingsCard.HeaderIcon>
                     <FontIcon Glyph="&#xE81C;" />
                 </controls:SettingsCard.HeaderIcon>
                 <ToggleSwitch
                     x:Name="RecentToggle"
-                    AutomationProperties.Name="Remember recent documents"
+                    x:Uid="SettingsRecentToggle"
                     Toggled="OnRecentToggled" />
             </controls:SettingsCard>
 
             <!--  About  -->
             <TextBlock
+                x:Uid="SettingsAbout"
                 AutomationProperties.HeadingLevel="Level2"
-                Style="{StaticResource SettingsSectionHeaderStyle}"
-                Text="About" />
+                Style="{StaticResource SettingsSectionHeaderStyle}" />
             <controls:SettingsCard x:Name="AboutCard" Header="Folio">
                 <controls:SettingsCard.HeaderIcon>
                     <ImageIcon Source="ms-appx:///Assets/AppIcon.png" />

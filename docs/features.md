@@ -10,6 +10,7 @@
 - A **Properties** dialog, and **password-protected** documents.
 - Remembers page, zoom and view mode per document, and reloads when the file changes on disk (encrypted files reuse the session password).
 - One process per session: PDFs opened from Explorer open as new windows in the running instance.
+- In **English** and **French**, following the Windows display language or picked in Settings.
 - **Explorer thumbnails** (Store/MSIX build): File Explorer shows the first page as the PDF's thumbnail, with a small Folio badge in the corner, while Folio is the default PDF app.
 
 Press F1 for keyboard shortcuts.

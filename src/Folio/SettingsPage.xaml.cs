@@ -11,8 +11,11 @@ public sealed partial class SettingsPage : UserControl
     // In the order the options are listed.
     private static readonly (AppTheme Theme, string Name)[] Themes =
     [
-        (AppTheme.Light, "Light"), (AppTheme.Dark, "Dark"), (AppTheme.System, "Use system setting"),
+        (AppTheme.Light, Strings.Get("ThemeLight")), (AppTheme.Dark, Strings.Get("ThemeDark")), (AppTheme.System, Strings.Get("ThemeSystem")),
     ];
+
+    /// <summary>Tags as in <see cref="AppLanguage.Available"/>, null first for the Windows language.</summary>
+    private static readonly string?[] Languages = [null, .. AppLanguage.Available.Select(a => a.Tag)];
 
     /// <summary>Set while showing the current preferences, so that doesn't count as the user changing them.</summary>
     private bool _refreshing;
@@ -21,8 +24,10 @@ public sealed partial class SettingsPage : UserControl
     {
         InitializeComponent();
         foreach (var (_, name) in Themes) ThemeOptions.Items.Add(name);
+        LanguageBox.Items.Add(Strings.Get("LanguageSystem"));
+        foreach (var (_, name) in AppLanguage.Available) LanguageBox.Items.Add(name);
         var assembly = typeof(SettingsPage).Assembly;
-        VersionText.Text = $"Version {assembly.GetName().Version?.ToString(3) ?? "1.0.0"}";
+        VersionText.Text = Strings.Format("VersionFormat", assembly.GetName().Version?.ToString(3) ?? "1.0.0");
         AboutCard.Description = assembly.GetCustomAttribute<AssemblyCopyrightAttribute>()?.Copyright.Replace("(c)", "©") ?? "";
     }
 
@@ -32,6 +37,7 @@ public sealed partial class SettingsPage : UserControl
         var prefs = AppState.Preferences;
         _refreshing = true;
         ThemeOptions.SelectedIndex = Array.FindIndex(Themes, t => t.Theme == prefs.Theme);
+        LanguageBox.SelectedIndex = Math.Max(0, Array.IndexOf(Languages, prefs.Language));
         CornersToggle.IsOn = prefs.RoundedPageCorners;
         HyphenatedToggle.IsOn = prefs.SearchJoinHyphenated;
         QuotesToggle.IsOn = prefs.SearchAnyQuote;
@@ -39,6 +45,7 @@ public sealed partial class SettingsPage : UserControl
         RecentToggle.IsOn = prefs.RememberRecent;
         _refreshing = false;
         UpdateThemeValue();
+        UpdateLanguageNote();
         Scroller.ChangeView(null, 0, null, true);
     }
 
@@ -52,6 +59,18 @@ public sealed partial class SettingsPage : UserControl
         AppState.Save();
         App.ApplyTheme();
     }
+
+    private void OnLanguageChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_refreshing || LanguageBox.SelectedIndex < 0) return;
+        AppState.Preferences.Language = Languages[LanguageBox.SelectedIndex];
+        AppState.Save();
+        UpdateLanguageNote();
+    }
+
+    /// <summary>Says a restart is needed while the chosen language isn't the one this run started with.</summary>
+    private void UpdateLanguageNote() => LanguageCard.Description = Strings.Get(
+        AppState.Preferences.Language == AppLanguage.Current ? "SettingsLanguage/Description" : "SettingsLanguageRestart");
 
     private void OnCornersToggled(object sender, RoutedEventArgs e)
     {
