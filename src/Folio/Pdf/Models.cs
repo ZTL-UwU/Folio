@@ -120,6 +120,18 @@ public sealed class PageText
         return sb.ToString();
     }
 
+    /// <summary>The characters from <paramref name="start"/> to <paramref name="end"/> as search reads them, hyphen markers and line breaks kept.</summary>
+    public string GetSearchText(int start, int end)
+    {
+        start = Math.Clamp(start, 0, Count);
+        end = Math.Clamp(end, start, Count);
+        if (start > 0 && start < Count && IsLow(start) && IsHigh(start - 1)) start--;
+        return string.Create(end - start, (CodePoints, start), static (chars, state) =>
+        {
+            for (int i = 0; i < chars.Length; i++) chars[i] = state.CodePoints[state.start + i] is var cp and <= 0xFFFF ? (char)cp : '�';
+        });
+    }
+
     private bool IsHigh(int i) => CodePoints[i] is >= 0xD800 and <= 0xDBFF;
     private bool IsLow(int i) => CodePoints[i] is >= 0xDC00 and <= 0xDFFF;
 

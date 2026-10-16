@@ -197,7 +197,7 @@ public sealed partial class DocumentView : UserControl
     /// <summary>Raised when the user edited annotations.</summary>
     public event EventHandler<int>? AnnotationsChanged;
     /// <summary>Raised when the user asked to search for the selected text.</summary>
-    public event EventHandler<string>? SearchRequested;
+    public event EventHandler? SearchRequested;
     /// <summary>Raised with a message when an annotation edit couldn't be made.</summary>
     public event EventHandler<string>? EditFailed;
 
@@ -1103,11 +1103,26 @@ public sealed partial class DocumentView : UserControl
         return sb.ToString();
     }
 
-    /// <summary>The selected text as a search query: on one line, and no longer than a query needs to be.</summary>
-    public async Task<string> GetSelectedQueryAsync()
+    /// <summary>
+    /// The selected text as a query, see <see cref="TextSearch.QueryFor"/>. Search finds text within a page, so this is
+    /// the text on the selection's first page, or on the next when the selection starts at the end of a page.
+    /// Empty if the document changes meanwhile.
+    /// </summary>
+    public async Task<string> GetSelectedQueryAsync(SearchOptions options)
     {
-        var text = (await GetSelectedTextAsync()).ReplaceLineEndings(" ").Trim();
-        return text.Length > 200 ? text[..200] : text;
+        if (GetSelection() is not { } sel) return "";
+        var document = _document;
+        for (int p = sel.Start.Page; p <= Math.Min(sel.End.Page, sel.Start.Page + 1); p++)
+        {
+            var text = await GetTextAsync(p);
+            if (document != _document) return "";
+            if (text is null) continue;
+            int start = p == sel.Start.Page ? sel.Start.Caret : 0;
+            int end = p == sel.End.Page ? sel.End.Caret : text.Count;
+            var query = TextSearch.QueryFor(text.GetSearchText(start, end), options);
+            if (query.Length > 0) return query;
+        }
+        return "";
     }
 
     public async void CopySelection()
@@ -1964,11 +1979,10 @@ public sealed partial class DocumentView : UserControl
         }
         flyout.SecondaryCommands.Add(new AppBarSeparator());
         var search = new AppBarButton { Label = "Search for selection", Icon = new SymbolIcon(Symbol.Find) };
-        search.Click += async (_, _) =>
+        search.Click += (_, _) =>
         {
             flyout.Hide();
-            var text = await GetSelectedQueryAsync();
-            if (text.Length > 0) SearchRequested?.Invoke(this, text);
+            SearchRequested?.Invoke(this, EventArgs.Empty);
         };
         flyout.SecondaryCommands.Add(search);
         ShowArrowWhenOpened(flyout);
