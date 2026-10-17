@@ -26,10 +26,19 @@ To try a build as your PDF app, measure performance or rebuild the icon, see [To
 | `src/Folio/Controls/PageView.cs` | One page: bitmap, zoomed-in tiles, highlight overlay |
 | `src/Folio/MainWindow.xaml` | Title bar, sidebar, start page |
 | `src/Folio/Printing`, `PrintDialog.xaml` | Print dialog, page layout on sheets (unit tested), printers and GDI print jobs |
-| `src/Folio/Services` | Persisted state, the Windows print dialog, single-instance handoff, link and attachment policy |
+| `src/Folio/Services` | Persisted state, the Windows print dialog, single-instance handoff, link and attachment policy, the app language |
+| `src/Folio/Strings` | The app's text, one `Resources.resw` per language ([Translations](#translations)) |
 | `src/Folio/Package.appxmanifest`, `Assets/Package` | MSIX manifest and logos |
 | `src/Folio/Program.cs` | Entry point; forwards files to a running instance |
 | `src/Folio.Thumbnails` | File Explorer thumbnail handler (Native AOT COM DLL, MSIX and dev builds only) |
 | `tests/Folio.Tests` | xUnit tests |
 | `tools` | Developer tools: build-and-try script, benchmark, icon build ([Tools](tools.md)) |
 | `LICENSE`, `licenses/`, `THIRD-PARTY-NOTICES.md` | License texts, copied into the build output |
+
+## Translations
+
+All text shown in the app is in `src/Folio/Strings/<language>/Resources.resw`; `en-US` is the source and the fallback for languages Folio doesn't have. XAML gets its strings with `x:Uid` (`ZoomInButton.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip`), code with `Strings.Get("Name")`, `Strings.Format` for `{0}` placeholders and `Strings.Plural` for counts (`Name_One` and `Name_Other`). The tests check that every language has the same strings with the same placeholders, and that the names used in code and XAML exist.
+
+Translations are made on [Crowdin](https://crowdin.com); only `en-US` is edited in the repo. The [Crowdin workflow](../.github/workflows/crowdin.yml) uploads it when it changes on `main`, and every Monday opens or updates a pull request from the `l10n` branch with the translations (strings not translated yet are in English). It can also be run by hand from the Actions tab. Its settings are in [crowdin.yml](../crowdin.yml), and it needs these repository secrets: `CROWDIN_PROJECT_ID`, `CROWDIN_PERSONAL_TOKEN`, and `CROWDIN_GITHUB_TOKEN`, a personal access token with read and write access to contents and pull requests. Without that token the pull request is opened with the workflow's own token, which doesn't start the Build workflow.
+
+To add a language, add it to the Crowdin project; translators can work on it there without it reaching the repo. When it's ready to ship, add its Crowdin code to `export_languages` in `crowdin.yml`, and its folder's tag and its own name to `AppLanguage.Available` so it can be picked in Settings. Then run the workflow; its pull request brings the translation, which Folio also uses for anyone whose Windows is in that language. Check that its `LanguageTag` is the culture it's written for (the tests check that it matches the folder). `Strings.Plural` only knows when English and French use the singular; teach it the new language's rule if that differs. Languages with more than two plural forms, such as Russian or Polish, need more than `_One` and `_Other`. The language picked in Settings applies when Folio next starts.

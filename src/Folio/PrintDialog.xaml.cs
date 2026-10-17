@@ -74,38 +74,38 @@ public sealed partial class PrintDialog : ContentDialog
         int count = document.PageCount;
         PagesBox.ItemsSource = new PrintChoice[]
         {
-            new(PageRange.All, "\uE8C8", "All pages", count == 1 ? "1 page" : $"{count:N0} pages"),
-            new(PageRange.Current, "\uE7C3", "Current page", $"Page {_currentPage + 1:N0}"),
-            new(PageRange.Custom, "\uE9D5", "Custom", "Choose the pages to print"),
+            new(PageRange.All, "\uE8C8", Strings.Get("PrintAllPages"), Strings.Plural("PageCount", count)),
+            new(PageRange.Current, "\uE7C3", Strings.Get("PrintCurrentPage"), Strings.Format("PrintPageNumber", _currentPage + 1)),
+            new(PageRange.Custom, "\uE9D5", Strings.Get("PrintCustomPages"), Strings.Get("PrintCustomPagesDetail")),
         };
         OrientationBox.ItemsSource = new PrintChoice[]
         {
-            new(SheetOrientation.Automatic, "\uE8B4", "Automatic"),
-            new(SheetOrientation.Portrait, "\uE7C3", "Portrait"),
-            new(SheetOrientation.Landscape, "\uE7C3", "Landscape", angle: 90),
+            new(SheetOrientation.Automatic, "\uE8B4", Strings.Get("PrintAutomatic")),
+            new(SheetOrientation.Portrait, "\uE7C3", Strings.Get("PrintPortrait")),
+            new(SheetOrientation.Landscape, "\uE7C3", Strings.Get("PrintLandscape"), angle: 90),
         };
         // The value is whether to print in grey.
-        ColorBox.ItemsSource = new PrintChoice[] { new(false, "\uE790", "Color"), new(true, "\uE7A1", "Black and white") };
+        ColorBox.ItemsSource = new PrintChoice[] { new(false, "\uE790", Strings.Get("PrintColor")), new(true, "\uE7A1", Strings.Get("PrintGrayscale")) };
         DuplexBox.ItemsSource = new PrintChoice[]
         {
-            new(TwoSided.Off, "\uE7C3", "Off"),
-            new(TwoSided.LongEdge, "\uE8C8", "Flip on long edge"),
-            new(TwoSided.ShortEdge, "\uE8C8", "Flip on short edge", angle: 90),
+            new(TwoSided.Off, "\uE7C3", Strings.Get("PrintOneSided")),
+            new(TwoSided.LongEdge, "\uE8C8", Strings.Get("PrintLongEdge")),
+            new(TwoSided.ShortEdge, "\uE8C8", Strings.Get("PrintShortEdge"), angle: 90),
         };
         // Without an icon: these lists show the option's text.
         PerSheetBox.ItemsSource = PrintLayout.PagesPerSheetChoices.Select(n => new PrintChoice(n, "", n.ToString())).ToArray();
         ScaleBox.ItemsSource = new PrintChoice[]
         {
-            new(PrintScaling.Fit, "", "Fit to printable area"),
-            new(PrintScaling.ShrinkOversized, "", "Shrink oversized pages"),
-            new(PrintScaling.ActualSize, "", "Actual size"),
-            new(PrintScaling.Custom, "", "Custom"),
+            new(PrintScaling.Fit, "", Strings.Get("PrintScaleFit")),
+            new(PrintScaling.ShrinkOversized, "", Strings.Get("PrintScaleShrink")),
+            new(PrintScaling.ActualSize, "", Strings.Get("PrintScaleActual")),
+            new(PrintScaling.Custom, "", Strings.Get("PrintScaleCustom")),
         };
         SubsetBox.ItemsSource = new PrintChoice[]
         {
-            new(PageSubset.All, "", "All pages in range"),
-            new(PageSubset.Odd, "", "Odd pages only"),
-            new(PageSubset.Even, "", "Even pages only"),
+            new(PageSubset.All, "", Strings.Get("PrintSubsetAll")),
+            new(PageSubset.Odd, "", Strings.Get("PrintSubsetOdd")),
+            new(PageSubset.Even, "", Strings.Get("PrintSubsetEven")),
         };
         foreach (var box in new[] { PagesBox, OrientationBox, ColorBox, DuplexBox, PerSheetBox, ScaleBox, SubsetBox }) box.SelectedIndex = 0;
         _updating = false;
@@ -187,8 +187,8 @@ public sealed partial class PrintDialog : ContentDialog
         if (_closed) return;
         if (names.Count == 0)
         {
-            PrinterBox.PlaceholderText = "No printers";
-            PrinterStatus.Text = "Add a printer in Windows Settings, or use the system dialog.";
+            PrinterBox.PlaceholderText = Strings.Get("PrintNoPrinters");
+            PrinterStatus.Text = Strings.Get("PrintNoPrintersDetail");
             PaperKnown();
             return;
         }
@@ -225,7 +225,7 @@ public sealed partial class PrintDialog : ContentDialog
         _printer = null;
         PrintButton.IsEnabled = false;
         PropertiesButton.IsEnabled = false;
-        PrinterStatus.Text = "Connecting…";
+        PrinterStatus.Text = Strings.Get("PrintConnecting");
         PrinterStatus.Style = AppStyle("SecondaryCaptionTextBlockStyle");
         PrinterDetails details;
         try
@@ -235,7 +235,7 @@ public sealed partial class PrintDialog : ContentDialog
         catch (Exception ex) when (ex is Win32Exception or ArgumentException or System.Runtime.InteropServices.COMException)
         {
             if (version != _printerVersion) return;
-            PrinterStatus.Text = $"Unavailable. {ex.Message}";
+            PrinterStatus.Text = Strings.Format("PrintUnavailable", ex.Message);
             PaperKnown();
             return;
         }
@@ -258,7 +258,7 @@ public sealed partial class PrintDialog : ContentDialog
         _updating = false;
 
         var status = new List<string>();
-        if (name == _defaultPrinter) status.Add("Default");
+        if (name == _defaultPrinter) status.Add(Strings.Get("PrinterDefault"));
         status.Add(details.Status);
         if (details.Location.Length > 0) status.Add(details.Location);
         PrinterStatus.Text = string.Join(" · ", status);
@@ -360,7 +360,7 @@ public sealed partial class PrintDialog : ContentDialog
         }
         catch (Exception ex) when (ex is Win32Exception or ArgumentException)
         {
-            ShowError($"The printer's settings couldn't be opened. {ex.Message}");
+            ShowError(Strings.Format("PrinterPropertiesFailed", ex.Message));
             return;
         }
         if (result is null || _printer != printer) return;
@@ -475,7 +475,7 @@ public sealed partial class PrintDialog : ContentDialog
         pages = PrintLayout.Filter(pages, subset, ReverseBox.IsChecked == true);
         if (pages.Count == 0)
         {
-            error = subset == PageSubset.Even ? "There are no even pages to print." : "There are no odd pages to print.";
+            error = Strings.Get(subset == PageSubset.Even ? "PrintNoEvenPages" : "PrintNoOddPages");
             return false;
         }
         return true;
@@ -496,7 +496,7 @@ public sealed partial class PrintDialog : ContentDialog
             bool show = PagesChoice != PageRange.Custom || RangeBox.Text.Trim().Length > 0;
             RangeError.Text = error;
             RangeError.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
-            _problem = show ? error : "Enter the pages to print.";
+            _problem = show ? error : Strings.Get("PrintEnterPages");
             _sheets = [];
         }
         _sheetIndex = Math.Clamp(_sheetIndex, 0, Math.Max(0, _sheets.Count - 1));
@@ -510,13 +510,13 @@ public sealed partial class PrintDialog : ContentDialog
         if (_updating || Summary is null) return;
         if (_sheets.Count == 0)
         {
-            Summary.Text = "Nothing to print";
+            Summary.Text = Strings.Get("PrintNothing");
             return;
         }
         bool twoSided = TwoSidedChoice != TwoSided.Off;
         var sequence = PrintLayout.Sequence(_sheets.Count, Copies, CollateBox.IsChecked == true, twoSided);
         int paper = PrintLayout.PaperCount(sequence, twoSided);
-        Summary.Text = paper == 1 ? "1 sheet of paper" : $"{paper:N0} sheets of paper";
+        Summary.Text = Strings.Plural("PrintSheetCount", paper);
     }
 
     private void UpdateCanPrint() => PrintButton.IsEnabled = !_printing && _printer is not null && _sheets.Count > 0;
@@ -562,11 +562,11 @@ public sealed partial class PrintDialog : ContentDialog
 
         PreviousSheetButton.IsEnabled = _sheetIndex > 0;
         NextSheetButton.IsEnabled = _sheetIndex < _sheets.Count - 1;
-        SheetPosition.Text = _sheets.Count == 0 ? "" : $"{_sheetIndex + 1} of {_sheets.Count:N0}";
+        SheetPosition.Text = _sheets.Count == 0 ? "" : Strings.Format("PrintSheetPosition", _sheetIndex + 1, _sheets.Count);
         if (_sheets.Count == 0)
         {
             Sheet.Visibility = Visibility.Collapsed;
-            PreviewMessage.Text = _problem ?? "Nothing to print.";
+            PreviewMessage.Text = _problem ?? Strings.Get("PrintNothingPreview");
             ReleaseImages();
             return;
         }
@@ -737,14 +737,14 @@ public sealed partial class PrintDialog : ContentDialog
         bool twoSided = TwoSidedChoice != TwoSided.Off;
         // Printing from here on, file picker included, so another Print does nothing and closing cancels.
         SetPrinting(true);
-        ProgressText.Text = "Preparing…";
+        ProgressText.Text = Strings.Get("PrintPreparing");
         PrintProgress.Value = 0;
         var cts = _printCts = new CancellationTokenSource();
         var progress = new Progress<(int Done, int Total)>(p =>
         {
             if (!_printing) return;
             PrintProgress.Value = (double)p.Done / p.Total;
-            ProgressText.Text = $"Sending sheet {p.Done:N0} of {p.Total:N0}…";
+            ProgressText.Text = Strings.Format("PrintSending", p.Done, p.Total);
         });
         try
         {
@@ -789,7 +789,7 @@ public sealed partial class PrintDialog : ContentDialog
         {
             SetPrinting(false);
             if (_closeRequested) Hide();
-            else ShowError(ex is ObjectDisposedException ? "The document was closed." : ex.Message);
+            else ShowError(ex is ObjectDisposedException ? Strings.Get("PrintDocumentClosed") : ex.Message);
         }
     }
 
@@ -801,7 +801,7 @@ public sealed partial class PrintDialog : ContentDialog
             SuggestedFileName = Path.GetFileNameWithoutExtension(_document.FilePath),
             SuggestedStartLocation = PickerLocationId.DocumentsLibrary,
         };
-        picker.FileTypeChoices.Add(extension == ".pdf" ? "PDF document" : "XPS document", [extension]);
+        picker.FileTypeChoices.Add(Strings.Get(extension == ".pdf" ? "FileTypePdf" : "FileTypeXps"), [extension]);
         var result = await picker.PickSaveFileAsync();
         return result?.Path;
     }
@@ -820,7 +820,7 @@ public sealed partial class PrintDialog : ContentDialog
         // Cancel (or Esc) while the job is being sent stops it; the dialog closes once it's withdrawn.
         args.Cancel = true;
         _closeRequested = true;
-        ProgressText.Text = "Cancelling…";
+        ProgressText.Text = Strings.Get("PrintCancelling");
         _printCts?.Cancel();
     }
 

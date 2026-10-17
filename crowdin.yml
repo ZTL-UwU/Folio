@@ -1,0 +1,22 @@
+# Crowdin (https://crowdin.com) syncs the app's text: .github/workflows/crowdin.yml uploads the English strings and
+# opens a pull request with the translations. See "Translations" in docs/building.md.
+project_id_env: CROWDIN_PROJECT_ID
+api_token_env: CROWDIN_PERSONAL_TOKEN
+preserve_hierarchy: true
+# The languages Folio ships, as Crowdin codes; the same as AppLanguage.Available. Crowdin can have more, being
+# translated: they come to the repo once added here.
+export_languages: [fr]
+
+files:
+  - source: /src/Folio/Strings/en-US/Resources.resw
+    # Folders are named with the tags in AppLanguage.Available: the language alone, unless its regions differ.
+    translation: /src/Folio/Strings/%two_letters_code%/Resources.resw
+    languages_mapping:
+      two_letters_code:
+        zh-CN: zh-Hans
+        zh-TW: zh-Hant
+        pt-BR: pt-BR
+        pt-PT: pt-PT
+    # Untranslated strings are exported in English, so every language has them all (the tests check this).
+    skip_untranslated_strings: false
+    skip_untranslated_files: false
