@@ -3,6 +3,9 @@
 project_id_env: CROWDIN_PROJECT_ID
 api_token_env: CROWDIN_PERSONAL_TOKEN
 preserve_hierarchy: true
+# The languages Folio ships, as Crowdin codes; the same as AppLanguage.Available. Crowdin can have more, being
+# translated: they come to the repo once added here.
+export_languages: [fr]
 
 files:
   - source: /src/Folio/Strings/en-US/Resources.resw

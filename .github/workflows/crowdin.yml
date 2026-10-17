@@ -5,7 +5,7 @@ name: Crowdin
 on:
   push:
     branches: [main, feat/i18n]
-    paths: ['src/Folio/Strings/en-US/**', '.github/workflows/crowdin.yml']
+    paths: ['src/Folio/Strings/en-US/**', '.github/workflows/crowdin.yml', 'crowdin.yml']
   schedule:
     - cron: '0 3 * * 1'
   workflow_dispatch:
