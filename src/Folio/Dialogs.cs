@@ -22,6 +22,88 @@ internal static class Dialogs
         return dialog;
     }
 
+    // Only touched on the UI thread.
+    /// <summary>Completes when the last dialog shown or waiting to be shown has closed.</summary>
+    private static Task _lastDialog = Task.CompletedTask;
+    /// <summary>The dialog on screen, in whichever window.</summary>
+    private static ContentDialog? _openDialog;
+    /// <summary>Dialogs waiting for their turn.</summary>
+    private static readonly List<ContentDialog> Waiting = [];
+    /// <summary>Windows that have closed, whose dialogs still waiting are skipped.</summary>
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<XamlRoot, object> ClosedRoots = [];
+
+    /// <summary>Raised when a dialog opens or closes, or starts or stops waiting for its turn.</summary>
+    public static event EventHandler? QueueChanged;
+
+    /// <summary>The window of the dialog on screen, if there is one.</summary>
+    public static XamlRoot? OpenRoot => _openDialog?.XamlRoot;
+
+    /// <summary>
+    /// Whether the window <paramref name="root"/> belongs to has a dialog waiting for one open in another window,
+    /// which the window says it's waiting for.
+    /// </summary>
+    public static bool IsWaitingForOtherWindow(XamlRoot root) =>
+        OpenRoot is { } open && open != root && Waiting.Any(d => d.XamlRoot == root);
+
+    /// <summary>
+    /// Closes the dialog of a window that's closing, so the dialogs of other windows waiting behind it get
+    /// their turn, and skips the ones it still has waiting.
+    /// </summary>
+    public static void WindowClosed(XamlRoot root)
+    {
+        ClosedRoots.AddOrUpdate(root, root);
+        if (_openDialog?.XamlRoot == root) _openDialog.Hide();
+    }
+
+    /// <summary>
+    /// Shows <paramref name="dialog"/> once the dialogs before it have closed. WinUI shows one dialog at a time
+    /// per UI thread, not per window, and every Folio window shares the one thread: ShowAsync throws for a second
+    /// dialog in any window, which one asked for from code (a file opened from Explorer that needs a password, a
+    /// shortcut) could otherwise hit. A dialog whose window closes, before or while it's shown, comes back as
+    /// cancelled, and so does one asked for while its window already has one waiting for another window: one
+    /// waiting is enough, rather than a dialog for every key pressed meanwhile popping up one after another.
+    /// </summary>
+    public static async Task<ContentDialogResult> ShowAsync(ContentDialog dialog)
+    {
+        if (dialog.XamlRoot is { } owner && IsWaitingForOtherWindow(owner)) return ContentDialogResult.None;
+        var previous = _lastDialog;
+        var done = new TaskCompletionSource();
+        _lastDialog = done.Task;
+        try
+        {
+            if (!previous.IsCompleted)
+            {
+                Waiting.Add(dialog);
+                QueueChanged?.Invoke(null, EventArgs.Empty);
+                await previous;
+                Waiting.Remove(dialog);
+            }
+            if (dialog.XamlRoot is not { } root || ClosedRoots.TryGetValue(root, out _)) return ContentDialogResult.None;
+            _openDialog = dialog;
+            QueueChanged?.Invoke(null, EventArgs.Empty);
+            // Subscribed after the dialog's own handlers, so it has the last word; see OnClosing.
+            dialog.Closing += OnClosing;
+            return await dialog.ShowAsync();
+        }
+        finally
+        {
+            dialog.Closing -= OnClosing;
+            if (_openDialog == dialog) _openDialog = null;
+            done.SetResult();
+            QueueChanged?.Invoke(null, EventArgs.Empty);
+        }
+    }
+
+    /// <summary>
+    /// A dialog can refuse to close while it's busy (the password prompt does while it checks a password), but
+    /// not once its window has closed: nothing would close it after that, and every dialog after it, in any
+    /// window, would wait forever. WinUI raises Closing to its handlers in the order they were added.
+    /// </summary>
+    private static void OnClosing(ContentDialog dialog, ContentDialogClosingEventArgs args)
+    {
+        if (dialog.XamlRoot is { } root && ClosedRoots.TryGetValue(root, out _)) args.Cancel = false;
+    }
+
     public static async Task ShowPropertiesAsync(XamlRoot root, PdfDocument document)
     {
         var info = document.Info;
@@ -56,7 +138,7 @@ internal static class Dialogs
         dialog.Content = new ScrollViewer { Content = panel, MaxHeight = 520, Padding = new Thickness(0, 0, 16, 0) };
         dialog.CloseButtonText = "Close";
         dialog.DefaultButton = ContentDialogButton.Close;
-        await dialog.ShowAsync();
+        await ShowAsync(dialog);
     }
 
     private static FrameworkElement Section(string title, List<(string Label, string Value)> rows)
@@ -169,7 +251,7 @@ internal static class Dialogs
         dialog.Content = new ScrollViewer { Content = panel, MaxHeight = 520, Padding = new Thickness(0, 0, 16, 0) };
         dialog.CloseButtonText = "Close";
         dialog.DefaultButton = ContentDialogButton.Close;
-        await dialog.ShowAsync();
+        await ShowAsync(dialog);
     }
 
     public static async Task ShowAboutAsync(XamlRoot root)
@@ -214,6 +296,6 @@ internal static class Dialogs
         dialog.Content = panel;
         dialog.CloseButtonText = "Close";
         dialog.DefaultButton = ContentDialogButton.Close;
-        await dialog.ShowAsync();
+        await ShowAsync(dialog);
     }
 }

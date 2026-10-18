@@ -42,12 +42,21 @@ public sealed partial class MainWindow : Window
     private List<RecentItem> _recentItems = [];
     private readonly ObservableCollection<RecentItem> _recentMatches = [];
     private readonly EventHandler _recentChanged;
+    private readonly EventHandler _dialogQueueChanged;
     /// <summary>Folders under %TEMP%\Folio holding attachments this window extracted; deleted when it closes.</summary>
     private readonly List<string> _attachmentFolders = [];
     private PdfDocument? _document;
     /// <summary>The password that unlocked <see cref="_document"/>, kept for reloads during this session.</summary>
     private string? _password;
     private int _opening;
+    /// <summary>Numbers requests to show a file (see <see cref="OpenAsync"/>) in the order they're made.</summary>
+    private int _openRequests;
+    /// <summary>The latest request that showed its file. An open that finishes after a later one did is dropped.</summary>
+    private int _openShown;
+    /// <summary>Files being opened, until their open finishes.</summary>
+    private readonly List<string> _openingPaths = [];
+    /// <summary>Files loading; the progress ring spins while there are any.</summary>
+    private int _loading;
     /// <summary>The window was opened for a file and stays empty until it loads, instead of flashing the start page.</summary>
     private bool _hideStartPage;
     private RecentDocument? _entry;
@@ -78,11 +87,17 @@ public sealed partial class MainWindow : Window
     private bool _sidebarBeforeFullscreen;
     private bool _annotationsScanned;
     private bool _forceClose;
+    /// <summary>The window has closed. Opens still under way, such as one waiting on a password check, show nothing.</summary>
+    private bool _closed;
     private bool _hasOutline;
     private bool _hasAttachments;
     private bool _settingsOpen;
-    /// <summary>The file changed on disk while Settings was open; checked again when it closes.</summary>
-    private bool _reloadAfterSettings;
+    /// <summary>Print dialogs (Folio's or Windows') that are open or still sending the document to the printer.</summary>
+    private int _printing;
+    /// <summary>The file changed on disk while Settings or a print dialog was open; checked again when they close.</summary>
+    private bool _reloadPending;
+    /// <summary>Automatic reloads put off because another app still had the file open, likely still writing it.</summary>
+    private int _reloadRetries;
 
     public MainWindow()
     {
@@ -168,6 +183,9 @@ public sealed partial class MainWindow : Window
         // AppState is static: unsubscribed in OnWindowClosed, or it would keep every closed window alive.
         _recentChanged = (_, _) => DispatcherQueue.TryEnqueue(RefreshRecent);
         AppState.RecentChanged += _recentChanged;
+        // Dialogs is static too: unsubscribed in OnWindowClosed as well.
+        _dialogQueueChanged = (_, _) => UpdateDialogWait();
+        Dialogs.QueueChanged += _dialogQueueChanged;
         RefreshRecent();
         UpdateChrome();
         ApplyTheme();
@@ -206,8 +224,17 @@ public sealed partial class MainWindow : Window
 
     // ================================================================ opening & closing
 
+    /// <summary>
+    /// Shows the file at <paramref name="path"/>. Opens are numbered as they're asked for, and the last one asked
+    /// for wins: one that finishes loading after a later one has shown its file is dropped. One that's cancelled
+    /// or fails leaves the others be, and asking for the file already shown counts as showing it.
+    /// </summary>
     public async Task OpenAsync(string path)
     {
+        // Already on its way: from a second launch, or a file listed twice.
+        if (IsOpening(path)) return;
+        int request = ++_openRequests;
+        _openingPaths.Add(path);
         _opening++;
         // Not loaded yet means nothing has been drawn: a new window opened for this file.
         if (!_loaded.Task.IsCompleted && _document is null)
@@ -223,29 +250,49 @@ public sealed partial class MainWindow : Window
                 ShowMessage("File not found", $"“{Path.GetFileName(path)}” could not be found. It may have been moved or deleted.", InfoBarSeverity.Warning);
                 return;
             }
-            if (IsShowing(path)) return;
+            if (IsShowing(path))
+            {
+                _openShown = Math.Max(_openShown, request);
+                return;
+            }
             if (!await ConfirmDiscardChangesAsync()) return;
+            // Edits up to here the user has been asked about; ones made while the file loads are asked about again.
+            var stamp = TakeEditStamp();
 
-            LoadingRing.IsActive = true;
             (PdfDocument? Document, string? Password) loaded;
+            _loading++;
+            LoadingRing.IsActive = true;
             try
             {
                 loaded = await LoadAsync(path, null);
             }
             catch (Exception ex) when (ex is IOException or InvalidDataException or UnauthorizedAccessException)
             {
-                ShowMessage("Unable to open document", ex.Message, InfoBarSeverity.Error);
+                if (request > _openShown) ShowMessage("Unable to open document", ex.Message, InfoBarSeverity.Error);
                 return;
             }
             finally
             {
-                LoadingRing.IsActive = false;
+                if (--_loading == 0) LoadingRing.IsActive = false;
             }
-            if (loaded.Document is { } document)
-                ShowDocument(document, loaded.Password);
+            if (loaded.Document is not { } document) return;
+            bool show = false;
+            try
+            {
+                show = await MayShowAsync(request, stamp);
+            }
+            finally
+            {
+                // Also when asking about the edits threw, so the loaded file isn't left open.
+                if (!show) document.Dispose();
+            }
+            if (!show) return;
+            _openShown = request;
+            ShowDocument(document, loaded.Password);
         }
         finally
         {
+            _openingPaths.Remove(path);
             _opening--;
             // Missing, unreadable or cancelled: fall back to the start page.
             if (_opening == 0 && _hideStartPage)
@@ -254,6 +301,28 @@ public sealed partial class MainWindow : Window
                 ShowCurrentView();
             }
         }
+    }
+
+    /// <summary>How far the document on screen, and the notes being typed on it, had been edited at some point.</summary>
+    private readonly record struct EditStamp(PdfDocument? Document, int Edits, int NoteText);
+
+    private EditStamp TakeEditStamp() => new(_document, _document?.EditCount ?? 0, Viewer.NoteTextVersion);
+
+    /// <summary>Whether the document on screen has unsaved edits made since <paramref name="stamp"/>, which the user hasn't been asked about.</summary>
+    private bool EditedSince(EditStamp stamp) =>
+        _document is not null && (_document.IsModified || Viewer.HasPendingEdits) && stamp != TakeEditStamp();
+
+    /// <summary>
+    /// Whether open <paramref name="request"/> may show its file now: no later one has shown its own, and the user
+    /// agreed to lose edits made since <paramref name="stamp"/>, if there are any.
+    /// </summary>
+    private async Task<bool> MayShowAsync(int request, EditStamp stamp)
+    {
+        // A closed window has already released its document, and nothing would release this one.
+        if (_closed || request < _openShown) return false;
+        if (EditedSince(stamp) && !await ConfirmDiscardChangesAsync()) return false;
+        // Again, as another may have been shown, or the window closed, while the user was asked.
+        return !_closed && request > _openShown;
     }
 
     /// <summary>
@@ -273,8 +342,12 @@ public sealed partial class MainWindow : Window
     }
 
     /// <summary>Whether this window shows the file at <paramref name="path"/> (a full path).</summary>
-    internal bool IsShowing(string path) =>
-        _document is not null && string.Equals(Path.GetFullPath(path), Path.GetFullPath(_document.FilePath), StringComparison.OrdinalIgnoreCase);
+    internal bool IsShowing(string path) => _document is not null && SamePath(path, _document.FilePath);
+
+    /// <summary>Whether this window is opening the file at <paramref name="path"/>, so it'll show it soon.</summary>
+    internal bool IsOpening(string path) => _openingPaths.Any(p => SamePath(path, p));
+
+    private static bool SamePath(string a, string b) => string.Equals(Path.GetFullPath(a), Path.GetFullPath(b), StringComparison.OrdinalIgnoreCase);
 
     /// <summary>On the start page and not about to open anything, so it can take a document opened from outside.</summary>
     internal bool IsIdle => _document is null && _opening == 0;
@@ -321,7 +394,7 @@ public sealed partial class MainWindow : Window
         if (remember) AppState.Touch(_entry);
 
         _settingsOpen = false;
-        _reloadAfterSettings = false;
+        StopReloading();
         ShowCurrentView();
         // Size the sidebar for this document's thumbnails before the viewer lays out, so its
         // viewport (and the fit-width zoom the first pages render at) doesn't change afterwards.
@@ -342,7 +415,7 @@ public sealed partial class MainWindow : Window
         _annotationItems.Clear();
         _annotationsScanned = false;
         SelectSidebarTab(AppState.Preferences.SidebarPage);
-        WatchFile(document.FilePath);
+        WatchFile(document);
         if (remember && !encrypted) _ = SaveRecentThumbnailAsync(document);
         Viewer.Focus(FocusState.Programmatic);
     }
@@ -364,6 +437,7 @@ public sealed partial class MainWindow : Window
         _annotationScanCts?.Cancel();
         _watcher?.Dispose();
         _watcher = null;
+        StopReloading();
         var document = _document;
         _document = null;
         _password = null;
@@ -380,30 +454,101 @@ public sealed partial class MainWindow : Window
         RefreshRecent();
     }
 
-    private async Task ReloadAsync()
+    private const string ReloadFailedTitle = "Unable to reload document";
+    /// <summary>About 30 seconds of retries, at the reload delay.</summary>
+    private const int MaxReloadRetries = 50;
+
+    /// <summary>
+    /// Opens the file again in place of the document. <paramref name="automatic"/>: because it changed on disk,
+    /// so while another app still has it open (most likely still writing it), this tries again shortly instead.
+    /// </summary>
+    private async Task ReloadAsync(bool automatic = false)
     {
         if (_document is null) return;
         var current = _document;
         string path = current.FilePath;
+        // Edits up to here the user agreed to lose (an automatic reload only starts without any); ones made while
+        // the file loads they haven't.
+        var stamp = TakeEditStamp();
         PersistPosition();
+        PdfDocument? document;
+        string? password;
         try
         {
             // Encrypted files reopen with the password from this session; if that no longer works, ask again.
-            var (document, password) = await LoadAsync(path, _password);
-            if (document is null) return;
-            if (_document != current)
-            {
-                // Another document was opened or this one closed while we were loading.
-                document.Dispose();
-                return;
-            }
-            ShowDocument(document, password, reloading: true);
-            if (!string.IsNullOrEmpty(_searchQuery)) StartSearch(_searchQuery);
+            (document, password) = await LoadAsync(path, _password);
+        }
+        catch (IOException ex) when (automatic && IsInUse(ex) && _reloadRetries < MaxReloadRetries)
+        {
+            // Unless another document has taken this one's place meanwhile.
+            if (_document != current) return;
+            _reloadRetries++;
+            _reloadDebounce.Stop();
+            _reloadDebounce.Start();
+            return;
         }
         catch (Exception ex) when (ex is IOException or InvalidDataException or UnauthorizedAccessException)
         {
-            ShowMessage("Unable to reload document", ex.Message, InfoBarSeverity.Error);
+            if (_document != current) return;
+            _reloadRetries = 0;
+            ShowMessage(ReloadFailedTitle, ex.Message, InfoBarSeverity.Error);
+            return;
         }
+        if (document is null) return;
+        bool replace = _document == current;
+        if (replace && EditedSince(stamp))
+        {
+            // An automatic reload offers itself with a warning instead; one the user asked for asks about the edits.
+            try
+            {
+                replace = !automatic && await ConfirmDiscardChangesAsync() && _document == current;
+            }
+            catch
+            {
+                document.Dispose();
+                throw;
+            }
+            if (automatic) OnFileChangedOnDisk();
+        }
+        if (replace && IsDocumentInUse)
+        {
+            // Settings or a print dialog opened while it loaded: done again once they close.
+            replace = false;
+            _reloadPending = true;
+        }
+        if (!replace)
+        {
+            document.Dispose();
+            return;
+        }
+        if (Notification.IsOpen && Notification.Title == ReloadFailedTitle) Notification.IsOpen = false;
+        ShowDocument(document, password, reloading: true);
+        if (!string.IsNullOrEmpty(_searchQuery)) StartSearch(_searchQuery);
+    }
+
+    /// <summary>
+    /// Whether Settings or a print dialog has the document: the viewer is hidden behind Settings and has no size to
+    /// lay out a reloaded document in, and reloading would close the document a print dialog is previewing or printing.
+    /// </summary>
+    private bool IsDocumentInUse => _settingsOpen || _printing > 0;
+
+    /// <summary>Drops reloads waiting for the document on screen, when it's replaced or closed.</summary>
+    private void StopReloading()
+    {
+        _reloadDebounce.Stop();
+        _reloadRetries = 0;
+        _reloadPending = false;
+    }
+
+    /// <summary>Whether a file couldn't be opened because another process has it open (ERROR_SHARING_VIOLATION, ERROR_LOCK_VIOLATION).</summary>
+    private static bool IsInUse(IOException ex) => ex.HResult is unchecked((int)0x80070020) or unchecked((int)0x80070021);
+
+    /// <summary>Checks the file again if it changed while Settings or a print dialog was open.</summary>
+    private void CheckPendingReload()
+    {
+        if (!_reloadPending) return;
+        _reloadPending = false;
+        OnFileChangedOnDisk();
     }
 
     private void PersistPosition()
@@ -421,10 +566,18 @@ public sealed partial class MainWindow : Window
         AppState.Save();
     }
 
-    private void WatchFile(string path)
+    private void WatchFile(PdfDocument document)
     {
         _watcher?.Dispose();
         _watcher = null;
+        string path = document.FilePath;
+        // Events already queued when the watcher goes are for that document, not the next.
+        void Changed()
+        {
+            if (_document != document) return;
+            _reloadDebounce.Stop();
+            _reloadDebounce.Start();
+        }
         try
         {
             var dir = Path.GetDirectoryName(path);
@@ -434,8 +587,8 @@ public sealed partial class MainWindow : Window
                 NotifyFilter = NotifyFilters.LastWrite | NotifyFilters.Size | NotifyFilters.FileName,
                 EnableRaisingEvents = true,
             };
-            _watcher.Changed += (_, _) => DispatcherQueue.TryEnqueue(() => { _reloadDebounce.Stop(); _reloadDebounce.Start(); });
-            _watcher.Renamed += (_, _) => DispatcherQueue.TryEnqueue(() => { _reloadDebounce.Stop(); _reloadDebounce.Start(); });
+            _watcher.Changed += (_, _) => DispatcherQueue.TryEnqueue(Changed);
+            _watcher.Renamed += (_, _) => DispatcherQueue.TryEnqueue(Changed);
         }
         catch (Exception ex) when (ex is IOException or ArgumentException or UnauthorizedAccessException)
         {
@@ -445,22 +598,22 @@ public sealed partial class MainWindow : Window
     private void OnFileChangedOnDisk()
     {
         if (_document is null || DateTime.UtcNow < _ignoreWatcherUntil || !File.Exists(_document.FilePath)) return;
-        // The viewer is hidden behind Settings and has no size to lay out a reloaded document in.
-        if (_settingsOpen)
+        if (IsDocumentInUse)
         {
-            _reloadAfterSettings = true;
+            _reloadPending = true;
             return;
         }
         if (!_document.IsModified && !Viewer.HasPendingEdits)
         {
-            _ = ReloadAsync();
+            _ = ReloadAsync(automatic: true);
             return;
         }
+        var document = _document;
         var reload = new Button { Content = "Reload" };
         reload.Click += async (_, _) =>
         {
             Notification.IsOpen = false;
-            await ReloadAsync();
+            if (_document == document) await ReloadAsync();
         };
         ShowMessage("The document changed on disk", "Reloading will discard your unsaved annotations.", InfoBarSeverity.Warning, reload);
     }
@@ -469,7 +622,8 @@ public sealed partial class MainWindow : Window
     {
         // A note still being typed counts as an unsaved change.
         await Viewer.CommitPendingEditsAsync();
-        if (_document is not { IsModified: true }) return true;
+        // A note whose text couldn't be written is still pending.
+        if (_document is null || !_document.IsModified && !Viewer.HasPendingEdits) return true;
         var dialog = Dialogs.Create(Root.XamlRoot);
         dialog.Title = "Save changes to a copy?";
         dialog.Content = $"“{Path.GetFileName(_document.FilePath)}” has unsaved annotations. If you don't save a copy, they will be lost.";
@@ -477,7 +631,7 @@ public sealed partial class MainWindow : Window
         dialog.SecondaryButtonText = "Don't save";
         dialog.CloseButtonText = "Cancel";
         dialog.DefaultButton = ContentDialogButton.Primary;
-        var result = await dialog.ShowAsync();
+        var result = await Dialogs.ShowAsync(dialog);
         if (result == ContentDialogResult.None) return false;
         if (result == ContentDialogResult.Primary) return await SaveCopyAsync();
         return true;
@@ -520,7 +674,11 @@ public sealed partial class MainWindow : Window
     /// <summary>Releases everything that would otherwise outlive the window.</summary>
     private void OnWindowClosed(object sender, WindowEventArgs e)
     {
+        _closed = true;
+        // A dialog left open here would hold up those of every other window.
+        if (Root.XamlRoot is { } root) Dialogs.WindowClosed(root);
         AppState.RecentChanged -= _recentChanged;
+        Dialogs.QueueChanged -= _dialogQueueChanged;
         App.OpenWindows.Remove(this);
         if (App.LastActiveWindow == this) App.LastActiveWindow = null;
         // The window, its AppWindow and the timers aren't XAML elements, so the garbage collector can't trace
@@ -663,10 +821,11 @@ public sealed partial class MainWindow : Window
             e.Handled = true;
             if (await TryUnlockAsync()) dialog.Hide();
         };
-        // Don't let Cancel or Esc drop a document that's still opening.
-        dialog.Closing += (_, e) => e.Cancel |= checking;
+        // Don't let Cancel or Esc drop a document that's still opening, unless the window has closed: the dialog
+        // would stay open for good, holding up every other window's dialogs. The open then shows nothing.
+        dialog.Closing += (_, e) => e.Cancel |= checking && !_closed;
         dialog.Opened += (_, _) => box.Focus(FocusState.Programmatic);
-        await dialog.ShowAsync();
+        await Dialogs.ShowAsync(dialog);
         failure?.Throw();
         return document is null ? (null, null) : (document, password);
     }
@@ -764,6 +923,23 @@ public sealed partial class MainWindow : Window
         Notification.Severity = severity;
         Notification.ActionButton = action;
         Notification.IsOpen = true;
+    }
+
+    /// <summary>
+    /// Says so while a dialog of this window waits for one in another window, which could be out of sight
+    /// (behind this one, or on another screen): Windows shows one dialog at a time for all of Folio's windows.
+    /// </summary>
+    private void UpdateDialogWait()
+    {
+        var root = Root.XamlRoot;
+        DialogWaitBar.IsOpen = root is not null && Dialogs.IsWaitingForOtherWindow(root);
+    }
+
+    /// <summary>Brings forward the window with the dialog this one's is waiting for.</summary>
+    private void OnShowWaitingDialog(object sender, RoutedEventArgs e)
+    {
+        var open = Dialogs.OpenRoot;
+        App.OpenWindows.FirstOrDefault(w => w != this && w.Root.XamlRoot == open)?.BringToFront();
     }
 
     private void ShowHint(string text)
@@ -1195,7 +1371,8 @@ public sealed partial class MainWindow : Window
         {
             var data = await document.GetAttachmentDataAsync(item.Attachment);
             string dir = AttachmentFiles.CreateFolder();
-            string path = Path.Combine(dir, name);
+            // Under the name it would be saved as, so a desktop.ini doesn't customize the folder it's in.
+            string path = Path.Combine(dir, LaunchPolicy.SaveFileName(name));
             await File.WriteAllBytesAsync(path, data);
             // Without the mark, the app that opens it can't tell it came from a document off the internet.
             if (!LaunchPolicy.MarkAsUntrusted(path) && risk != AttachmentRisk.Pdf)
@@ -1238,7 +1415,7 @@ public sealed partial class MainWindow : Window
         dialog.PrimaryButtonText = "Open";
         dialog.CloseButtonText = "Cancel";
         dialog.DefaultButton = ContentDialogButton.Close;
-        return await dialog.ShowAsync() == ContentDialogResult.Primary;
+        return await Dialogs.ShowAsync(dialog) == ContentDialogResult.Primary;
     }
 
     private async void SaveAttachment(AttachmentItem item)
@@ -1638,24 +1815,45 @@ public sealed partial class MainWindow : Window
     {
         if (_document is null) return;
         var dialog = new PrintDialog(this, Root.XamlRoot, _document, DisplayName(_document), Viewer.CurrentPage);
-        await dialog.ShowAsync();
-        if (dialog.UseSystemDialog) await PrintWithSystemDialogAsync();
-        else if (dialog.FailedPages > 0)
+        // The document stays as it is until the dialog closes, and through the Windows dialog it can hand over to.
+        _printing++;
+        try
+        {
+            await Dialogs.ShowAsync(dialog);
+        }
+        finally
+        {
+            _printing--;
+        }
+        if (dialog.UseSystemDialog)
+        {
+            await PrintWithSystemDialogAsync();
+            return;
+        }
+        if (dialog.FailedPages > 0)
             ShowMessage("Printing problem", dialog.FailedPages == 1 ? "One page couldn't be printed and was left blank." : $"{dialog.FailedPages} pages couldn't be printed and were left blank.", InfoBarSeverity.Warning);
+        CheckPendingReload();
     }
 
     private async Task PrintWithSystemDialogAsync()
     {
         if (_document is null) return;
+        // The document stays as it is until the job has been sent: the dialog renders its pages until then.
+        _printing++;
         try
         {
-            await PrintService.PrintAsync(this, _document, DisplayName(_document), Viewer.IsInverted,
+            await PrintService.PrintAsync(this, _document, DisplayName(_document),
                 message => DispatcherQueue.TryEnqueue(() => ShowMessage("Printing problem", message, InfoBarSeverity.Warning)));
         }
         catch (Exception ex)
         {
             ShowMessage("Unable to print", ex.Message, InfoBarSeverity.Error);
         }
+        finally
+        {
+            _printing--;
+        }
+        CheckPendingReload();
     }
 
     private void OnToggleContinuous(object sender, RoutedEventArgs e) => Viewer.SetContinuous(ContinuousItem.IsChecked);
@@ -1727,11 +1925,7 @@ public sealed partial class MainWindow : Window
         if (_document is not null) Viewer.Focus(FocusState.Programmatic);
         // Settings has options for how search matches.
         if (_searchQuery.Length > 0 && CurrentSearchOptions() != _searchOptions) StartSearch(_searchQuery);
-        if (_reloadAfterSettings)
-        {
-            _reloadAfterSettings = false;
-            OnFileChangedOnDisk();
-        }
+        CheckPendingReload();
     }
 
     /// <summary>Shows Settings if it's open, otherwise the document or the start page.</summary>

@@ -214,6 +214,8 @@ public sealed partial class DocumentView : UserControl
     public bool HasSelection => GetSelection() is { } s && s.Start.CompareTo(s.End) < 0;
     /// <summary>Whether an open note has text that isn't in the document yet.</summary>
     public bool HasPendingEdits => _noteEdits.Any(e => e.IsChanged);
+    /// <summary>Changes whenever the text of an open note does, to tell whether anything was typed since it was last read.</summary>
+    public int NoteTextVersion { get; private set; }
 
     public void SetDocument(PdfDocument? document, RecentDocument? restore = null)
     {
@@ -412,16 +414,19 @@ public sealed partial class DocumentView : UserControl
             GoToPage(destination.PageIndex);
             return;
         }
+        var document = _document;
         try
         {
-            var t = await _document.GetTransformAsync(destination.PageIndex);
+            var t = await document.GetTransformAsync(destination.PageIndex);
+            if (document != _document) return;
             var p = t.Apply(destination.UserX ?? 0, destination.UserY ?? 0);
-            var size = _document.PageSizes[destination.PageIndex];
+            var size = document.PageSizes[destination.PageIndex];
             GoToPage(destination.PageIndex, new Point(
                 destination.UserX is null ? 0 : Math.Clamp(p.X, 0, size.Width),
                 destination.UserY is null ? 0 : Math.Clamp(p.Y, 0, size.Height)));
         }
-        catch (ObjectDisposedException)
+        // Closed meanwhile, or the target page couldn't be loaded.
+        catch (Exception ex) when (ex is ObjectDisposedException or InvalidDataException)
         {
         }
     }
@@ -1142,10 +1147,21 @@ public sealed partial class DocumentView : UserControl
     public async void CopySelection()
     {
         string text = await GetSelectedTextAsync();
-        if (string.IsNullOrEmpty(text)) return;
+        if (!string.IsNullOrEmpty(text)) CopyText(text);
+    }
+
+    private static void CopyText(string text)
+    {
         var package = new DataPackage();
         package.SetText(text);
-        Clipboard.SetContent(package);
+        try
+        {
+            Clipboard.SetContent(package);
+        }
+        catch (System.Runtime.InteropServices.COMException)
+        {
+            // Another app has the clipboard open (CLIPBRD_E_CANT_OPEN). Nothing is copied, and copying again works once it's done.
+        }
     }
 
     private (int Page, Point Display)? HitPage(Point content)
@@ -2039,12 +2055,7 @@ public sealed partial class DocumentView : UserControl
             if (LinkAt(h.Page, h.Display) is { Destination.Uri: { } uri })
             {
                 if (LaunchPolicy.ParseExternalLink(uri) is not null) AddItem(menu, "Open link", "\uE8A7", () => _ = LaunchUriAsync(uri));
-                AddItem(menu, "Copy link address", "\uE71B", () =>
-                {
-                    var package = new DataPackage();
-                    package.SetText(uri);
-                    Clipboard.SetContent(package);
-                });
+                AddItem(menu, "Copy link address", "\uE71B", () => CopyText(uri));
                 menu.Items.Add(new MenuFlyoutSeparator());
             }
             if (AnnotationAt(h.Page, h.Display) is { } annotation)
@@ -2223,6 +2234,7 @@ public sealed partial class DocumentView : UserControl
         };
         if (string.IsNullOrEmpty(header.Text)) header.Visibility = Visibility.Collapsed;
         var edit = new NoteEdit(document, annotation, box);
+        box.TextChanged += (_, _) => NoteTextVersion++;
         _noteEdits.Add(edit);
         delete.Click += (_, _) =>
         {
@@ -2265,7 +2277,8 @@ public sealed partial class DocumentView : UserControl
     {
         if (!edit.IsChanged || edit.Document != _document) return;
         // Typing can go on while the flyout stays open; that's written when it closes.
-        string text = edit.Text;
+        string text = edit.Text, saved = edit.Saved;
+        // Set first, so a commit that starts meanwhile doesn't write the same text again.
         edit.Saved = text;
         int page = edit.Annotation.PageIndex;
         try
@@ -2274,6 +2287,8 @@ public sealed partial class DocumentView : UserControl
         }
         catch (Exception ex) when (IsEditFailure(ex))
         {
+            // Still unsaved, so closing the window doesn't drop the text without asking.
+            if (edit.Saved == text) edit.Saved = saved;
             ReportEditFailure(edit.Document, ex, "The note couldn't be changed.");
             return;
         }

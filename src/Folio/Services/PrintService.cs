@@ -16,10 +16,11 @@ internal static class PrintService
     private static readonly Dictionary<IntPtr, Windows.Foundation.TypedEventHandler<PrintManager, PrintTaskRequestedEventArgs>> Handlers = [];
 
     /// <summary>
-    /// Shows the print dialog. <paramref name="reportProblem"/> is called (on any thread) when
-    /// pages couldn't be rendered after the dialog has closed.
+    /// Shows the print dialog, and completes once the job has been sent or the dialog closed without
+    /// printing, so the document stays open until then. <paramref name="reportProblem"/> is called (on
+    /// any thread) when pages couldn't be rendered after the dialog has closed.
     /// </summary>
-    public static async Task PrintAsync(Window window, PdfDocument document, string title, bool inverted, Action<string> reportProblem)
+    public static async Task PrintAsync(Window window, PdfDocument document, string title, Action<string> reportProblem)
     {
         if (document.PageCount == 0) throw new InvalidOperationException("The document has no pages to print.");
         IntPtr hwnd = WinRT.Interop.WindowNative.GetWindowHandle(window);
@@ -27,6 +28,7 @@ internal static class PrintService
         var printDocument = new PrintDocument();
         var source = printDocument.DocumentSource;
         PrintTaskOptions? options = null;
+        var completed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 
         printDocument.Paginate += (_, e) =>
         {
@@ -35,16 +37,19 @@ internal static class PrintService
         };
         printDocument.GetPreviewPage += async (_, e) =>
         {
-            // The dialog waits for every preview page it asks for, so always answer.
+            // The dialog waits for every preview page it asks for, so always answer, even when something unexpected fails.
             UIElement? page = null;
             try
             {
-                page = await BuildPageAsync(document, e.PageNumber - 1, e.PageNumber, options, 96, inverted);
+                page = await BuildPageAsync(document, e.PageNumber - 1, e.PageNumber, options, 96);
             }
             catch (Exception ex) when (ex is InvalidDataException or ObjectDisposedException or InvalidOperationException or System.Runtime.InteropServices.COMException)
             {
             }
-            printDocument.SetPreviewPage(e.PageNumber, page ?? BlankPage(options, e.PageNumber));
+            finally
+            {
+                printDocument.SetPreviewPage(e.PageNumber, page ?? BlankPage(options, e.PageNumber));
+            }
         };
         printDocument.AddPages += async (_, e) =>
         {
@@ -57,7 +62,7 @@ internal static class PrintService
                 {
                     try
                     {
-                        var page = await BuildPageAsync(document, pages[n], n + 1, e.PrintTaskOptions, dpi, inverted: false);
+                        var page = await BuildPageAsync(document, pages[n], n + 1, e.PrintTaskOptions, dpi);
                         if (page is null) failed++;
                         else printDocument.AddPage(page);
                     }
@@ -80,6 +85,8 @@ internal static class PrintService
         void OnRequested(PrintManager sender, PrintTaskRequestedEventArgs args)
         {
             var task = args.Request.CreatePrintTask(title, request => request.SetSource(source));
+            // Raised when the job was sent, failed, or was cancelled or abandoned in the dialog.
+            task.Completed += (_, _) => completed.TrySetResult();
             task.Options.DisplayedOptions.Clear();
             task.Options.DisplayedOptions.Add(StandardPrintTaskOptions.Copies);
             task.Options.DisplayedOptions.Add(StandardPrintTaskOptions.CustomPageRanges);
@@ -95,7 +102,7 @@ internal static class PrintService
         Windows.Foundation.TypedEventHandler<PrintManager, PrintTaskRequestedEventArgs> handler = OnRequested;
         Handlers[hwnd] = handler;
         manager.PrintTaskRequested += handler;
-        await PrintManagerInterop.ShowPrintUIForWindowAsync(hwnd);
+        if (await PrintManagerInterop.ShowPrintUIForWindowAsync(hwnd)) await completed.Task;
     }
 
     /// <summary>Drops the print handler for a window that's closing, so it doesn't keep the document alive.</summary>
@@ -141,7 +148,7 @@ internal static class PrintService
         return new Grid { Width = width, Height = height, Background = new SolidColorBrush(Colors.White) };
     }
 
-    private static async Task<UIElement?> BuildPageAsync(PdfDocument document, int index, int jobPage, PrintTaskOptions? options, double dpi, bool inverted)
+    private static async Task<UIElement?> BuildPageAsync(PdfDocument document, int index, int jobPage, PrintTaskOptions? options, double dpi)
     {
         if (index < 0 || index >= document.PageCount) return null;
         var (paperWidth, paperHeight, imageable) = Paper(options, jobPage);
@@ -153,7 +160,7 @@ internal static class PrintService
         double fit = Math.Min(imageable.Width / (w * 96 / 72), imageable.Height / (h * 96 / 72));
         double scale = dpi / 72 * Math.Min(1, fit);
         var region = new RectInt32(0, 0, Math.Max(1, (int)(w * scale)), Math.Max(1, (int)(h * scale)));
-        using var buffer = await document.RenderAsync(index, scale, rotate ? 90 : 0, region, inverted, WorkPriority.Visible, CancellationToken.None);
+        using var buffer = await document.RenderAsync(index, scale, rotate ? 90 : 0, region, false, WorkPriority.Visible, CancellationToken.None);
         if (buffer is null) return null;
 
         var image = new Image

@@ -51,7 +51,7 @@ public partial class App : Application
         }
         foreach (var path in files)
         {
-            var window = OpenWindows.FirstOrDefault(w => w.IsShowing(path)) ?? OpenWindows.FirstOrDefault(w => w.IsIdle) ?? new MainWindow();
+            var window = OpenWindows.FirstOrDefault(w => w.IsShowing(path) || w.IsOpening(path)) ?? OpenWindows.FirstOrDefault(w => w.IsIdle) ?? new MainWindow();
             window.BringToFront();
             _ = window.OpenAsync(path);
         }
