@@ -11,6 +11,6 @@ Like any publish, building the package needs Visual Studio's C++ build tools ("D
 
 Packages land in `out\AppPackages\`. CI's `msix` job combines them into `Folio_<version>.msixbundle` for Partner Center. They're unsigned; the Store signs them.
 
-To test locally, enable Developer Mode and run `Add-AppxPackage -Register src\Folio\bin\msix\x64\Release\net10.0-windows10.0.26100.0\win-x64\AppxManifest.xml`. Remove with `Get-AppxPackage Folio | Remove-AppxPackage`. To see thumbnails, make Folio the default PDF app in Settings > Apps > Default apps; Explorer may keep showing icons it already cached until you clear thumbnails in Disk Cleanup.
+To test locally, enable Developer Mode and run `Add-AppxPackage -Register src\Folio\bin\msix\x64\Release\net10.0-windows10.0.26100.0\win-x64\AppxManifest.xml`. Remove with `Get-AppxPackage TonyZhang.FolioPDF | Remove-AppxPackage`. To see thumbnails, make Folio the default PDF app in Settings > Apps > Default apps; Explorer may keep showing icons it already cached until you clear thumbnails in Disk Cleanup.
 
-Before the first submission, reserve the name in Partner Center and copy `Name`, `Publisher` and `PublisherDisplayName` from Product identity into the manifest. The version is the manifest's `Identity Version` (last part must be 0), not the project's `<Version>`.
+The manifest's `Name`, `Publisher` and `PublisherDisplayName` are the ones on the app's Product identity page in Partner Center; keep them in step if that ever changes. The version is the manifest's `Identity Version` (last part must be 0), not the project's `<Version>`.

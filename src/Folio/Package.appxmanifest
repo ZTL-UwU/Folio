@@ -10,13 +10,13 @@
   xmlns:desktop5="http://schemas.microsoft.com/appx/manifest/desktop/windows10/5"
   IgnorableNamespaces="uap uap3 rescap com desktop2 desktop5">
 
-  <!-- Name and Publisher are placeholders until the app name is reserved in Partner Center
-       (Product identity page); the Store build must use the values given there. -->
-  <Identity Name="Folio" Publisher="CN=ZTL-UwU" Version="1.0.0.0" />
+  <!-- Name, Publisher and PublisherDisplayName are the ones Partner Center gives on the
+       Product identity page; the Store rejects a package with any other values. -->
+  <Identity Name="TonyZhang.FolioPDF" Publisher="CN=251E6375-5B11-4604-B68D-3A05ED7E9F7B" Version="1.0.0.0" />
 
   <Properties>
     <DisplayName>Folio</DisplayName>
-    <PublisherDisplayName>ZTL-UwU</PublisherDisplayName>
+    <PublisherDisplayName>Tony Zhang</PublisherDisplayName>
     <Logo>Assets\Package\StoreLogo.png</Logo>
   </Properties>
 
