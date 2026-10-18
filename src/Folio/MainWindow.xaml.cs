@@ -270,11 +270,17 @@ public sealed partial class MainWindow : Window
                 if (--_loading == 0) LoadingRing.IsActive = false;
             }
             if (loaded.Document is not { } document) return;
-            if (!await MayShowAsync(request, stamp))
+            bool show = false;
+            try
             {
-                document.Dispose();
-                return;
+                show = await MayShowAsync(request, stamp);
             }
+            finally
+            {
+                // Also when asking about the edits threw, so the loaded file isn't left open.
+                if (!show) document.Dispose();
+            }
+            if (!show) return;
             _openShown = request;
             ShowDocument(document, loaded.Password);
         }
@@ -486,7 +492,15 @@ public sealed partial class MainWindow : Window
         if (replace && EditedSince(stamp))
         {
             // An automatic reload offers itself with a warning instead; one the user asked for asks about the edits.
-            replace = !automatic && await ConfirmDiscardChangesAsync() && _document == current;
+            try
+            {
+                replace = !automatic && await ConfirmDiscardChangesAsync() && _document == current;
+            }
+            catch
+            {
+                document.Dispose();
+                throw;
+            }
             if (automatic) OnFileChangedOnDisk();
         }
         if (replace && IsDocumentInUse)
@@ -653,6 +667,8 @@ public sealed partial class MainWindow : Window
     /// <summary>Releases everything that would otherwise outlive the window.</summary>
     private void OnWindowClosed(object sender, WindowEventArgs e)
     {
+        // A dialog left open here would hold up those of every other window.
+        if (Root.XamlRoot is { } root) Dialogs.WindowClosed(root);
         AppState.RecentChanged -= _recentChanged;
         App.OpenWindows.Remove(this);
         if (App.LastActiveWindow == this) App.LastActiveWindow = null;

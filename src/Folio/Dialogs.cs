@@ -22,27 +22,46 @@ internal static class Dialogs
         return dialog;
     }
 
-    /// <summary>The last dialog shown or waiting to be shown in each window.</summary>
-    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<XamlRoot, Task> Queues = [];
+    // Only touched on the UI thread.
+    /// <summary>Completes when the last dialog shown or waiting to be shown has closed.</summary>
+    private static Task _lastDialog = Task.CompletedTask;
+    /// <summary>The dialog on screen, in whichever window.</summary>
+    private static ContentDialog? _openDialog;
+    /// <summary>Windows that have closed, whose dialogs still waiting are skipped.</summary>
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<XamlRoot, object> ClosedRoots = [];
 
     /// <summary>
-    /// Shows <paramref name="dialog"/> once the dialogs before it in its window have closed. A window can only
-    /// show one at a time, and ShowAsync throws for a second, which a dialog asked for from code (opening a
-    /// file while a password is asked for, a shortcut) could otherwise hit.
+    /// Closes the dialog of a window that's closing, so the dialogs of other windows waiting behind it get
+    /// their turn, and skips the ones it still has waiting.
+    /// </summary>
+    public static void WindowClosed(XamlRoot root)
+    {
+        ClosedRoots.AddOrUpdate(root, root);
+        if (_openDialog?.XamlRoot == root) _openDialog.Hide();
+    }
+
+    /// <summary>
+    /// Shows <paramref name="dialog"/> once the dialogs before it have closed. WinUI shows one dialog at a time
+    /// per UI thread, not per window, and every Folio window shares the one thread: ShowAsync throws for a second
+    /// dialog in any window, which one asked for from code (a file opened from Explorer that needs a password, a
+    /// shortcut) could otherwise hit. A dialog whose window closes, before or while it's shown, comes back as
+    /// cancelled.
     /// </summary>
     public static async Task<ContentDialogResult> ShowAsync(ContentDialog dialog)
     {
-        var root = dialog.XamlRoot;
-        var previous = Queues.TryGetValue(root, out var last) ? last : Task.CompletedTask;
+        var previous = _lastDialog;
         var done = new TaskCompletionSource();
-        Queues.AddOrUpdate(root, done.Task);
+        _lastDialog = done.Task;
         try
         {
             await previous;
+            if (dialog.XamlRoot is not { } root || ClosedRoots.TryGetValue(root, out _)) return ContentDialogResult.None;
+            _openDialog = dialog;
             return await dialog.ShowAsync();
         }
         finally
         {
+            if (_openDialog == dialog) _openDialog = null;
             done.SetResult();
         }
     }
