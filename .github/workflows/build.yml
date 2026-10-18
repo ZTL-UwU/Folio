@@ -87,8 +87,9 @@ jobs:
           New-Item -ItemType Directory out/msix | Out-Null
           Copy-Item out/AppPackages/*/*.msix out/msix
           if ((Get-ChildItem out/msix).Count -ne 2) { throw "Expected an x64 and an ARM64 package" }
-          # The manifest registers the Explorer thumbnail handler at this path; the license texts ship as in the unpackaged build.
-          $required = @("Folio.Thumbnails.dll", "licenses/LICENSE.txt", "licenses/THIRD-PARTY-NOTICES.md", "licenses/dotnet-LICENSE.txt", "licenses/dotnet-THIRD-PARTY-NOTICES.txt")
+          # The manifest registers the Explorer thumbnail handler at this path, and it and the app load pdfium.dll from the
+          # package root; the license texts ship as in the unpackaged build.
+          $required = @("Folio.Thumbnails.dll", "pdfium.dll", "licenses/LICENSE.txt", "licenses/THIRD-PARTY-NOTICES.md", "licenses/dotnet-LICENSE.txt", "licenses/dotnet-THIRD-PARTY-NOTICES.txt")
           $required += Get-ChildItem licenses/PDFium -File | ForEach-Object { "licenses/PDFium/$($_.Name)" }
           Add-Type -AssemblyName System.IO.Compression.FileSystem
           foreach ($msix in Get-ChildItem out/msix) {
