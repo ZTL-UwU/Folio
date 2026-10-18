@@ -70,6 +70,7 @@ public sealed class LaunchPolicyTests
     [InlineData("a.searchConnector-ms", "a.searchConnector-ms.txt")]
     [InlineData("a.library-ms", "a.library-ms.txt")]
     [InlineData("dark.theme", "dark.theme.txt")]
+    [InlineData("look.deskthemepack", "look.deskthemepack.txt")]
     [InlineData("desktop.ini", "desktop.ini.txt")]
     [InlineData("setup.exe", "setup.exe")]
     [InlineData("notes.docx", "notes.docx")]
@@ -99,6 +100,7 @@ public sealed class LaunchPolicyTests
     [InlineData("query.iqy", AttachmentRisk.Blocked)]
     [InlineData("sheet.slk", AttachmentRisk.Blocked)]
     [InlineData("workspace.wcx", AttachmentRisk.Blocked)]
+    [InlineData("look.deskthemepack", AttachmentRisk.Blocked)]
     public void ClassifiesAttachments(string name, AttachmentRisk expected) =>
         Assert.Equal(expected, LaunchPolicy.Classify(LaunchPolicy.SafeFileName(name)));
 
