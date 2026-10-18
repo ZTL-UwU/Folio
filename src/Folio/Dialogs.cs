@@ -81,14 +81,27 @@ internal static class Dialogs
             if (dialog.XamlRoot is not { } root || ClosedRoots.TryGetValue(root, out _)) return ContentDialogResult.None;
             _openDialog = dialog;
             QueueChanged?.Invoke(null, EventArgs.Empty);
+            // Subscribed after the dialog's own handlers, so it has the last word; see OnClosing.
+            dialog.Closing += OnClosing;
             return await dialog.ShowAsync();
         }
         finally
         {
+            dialog.Closing -= OnClosing;
             if (_openDialog == dialog) _openDialog = null;
             done.SetResult();
             QueueChanged?.Invoke(null, EventArgs.Empty);
         }
+    }
+
+    /// <summary>
+    /// A dialog can refuse to close while it's busy (the password prompt does while it checks a password), but
+    /// not once its window has closed: nothing would close it after that, and every dialog after it, in any
+    /// window, would wait forever. WinUI raises Closing to its handlers in the order they were added.
+    /// </summary>
+    private static void OnClosing(ContentDialog dialog, ContentDialogClosingEventArgs args)
+    {
+        if (dialog.XamlRoot is { } root && ClosedRoots.TryGetValue(root, out _)) args.Cancel = false;
     }
 
     public static async Task ShowPropertiesAsync(XamlRoot root, PdfDocument document)

@@ -87,6 +87,8 @@ public sealed partial class MainWindow : Window
     private bool _sidebarBeforeFullscreen;
     private bool _annotationsScanned;
     private bool _forceClose;
+    /// <summary>The window has closed. Opens still under way, such as one waiting on a password check, show nothing.</summary>
+    private bool _closed;
     private bool _hasOutline;
     private bool _hasAttachments;
     private bool _settingsOpen;
@@ -316,10 +318,11 @@ public sealed partial class MainWindow : Window
     /// </summary>
     private async Task<bool> MayShowAsync(int request, EditStamp stamp)
     {
-        if (request < _openShown) return false;
+        // A closed window has already released its document, and nothing would release this one.
+        if (_closed || request < _openShown) return false;
         if (EditedSince(stamp) && !await ConfirmDiscardChangesAsync()) return false;
-        // Again, as another may have been shown while the user was asked.
-        return request > _openShown;
+        // Again, as another may have been shown, or the window closed, while the user was asked.
+        return !_closed && request > _openShown;
     }
 
     /// <summary>
@@ -671,6 +674,7 @@ public sealed partial class MainWindow : Window
     /// <summary>Releases everything that would otherwise outlive the window.</summary>
     private void OnWindowClosed(object sender, WindowEventArgs e)
     {
+        _closed = true;
         // A dialog left open here would hold up those of every other window.
         if (Root.XamlRoot is { } root) Dialogs.WindowClosed(root);
         AppState.RecentChanged -= _recentChanged;
@@ -817,8 +821,9 @@ public sealed partial class MainWindow : Window
             e.Handled = true;
             if (await TryUnlockAsync()) dialog.Hide();
         };
-        // Don't let Cancel or Esc drop a document that's still opening.
-        dialog.Closing += (_, e) => e.Cancel |= checking;
+        // Don't let Cancel or Esc drop a document that's still opening, unless the window has closed: the dialog
+        // would stay open for good, holding up every other window's dialogs. The open then shows nothing.
+        dialog.Closing += (_, e) => e.Cancel |= checking && !_closed;
         dialog.Opened += (_, _) => box.Focus(FocusState.Programmatic);
         await Dialogs.ShowAsync(dialog);
         failure?.Throw();
