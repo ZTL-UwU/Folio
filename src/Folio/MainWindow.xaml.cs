@@ -589,6 +589,8 @@ public sealed partial class MainWindow : Window
             };
             _watcher.Changed += (_, _) => DispatcherQueue.TryEnqueue(Changed);
             _watcher.Renamed += (_, _) => DispatcherQueue.TryEnqueue(Changed);
+            // A file deleted and replaced by one moved in from another folder raises only Created.
+            _watcher.Created += (_, _) => DispatcherQueue.TryEnqueue(Changed);
         }
         catch (Exception ex) when (ex is IOException or ArgumentException or UnauthorizedAccessException)
         {
