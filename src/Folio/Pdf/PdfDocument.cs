@@ -58,6 +58,9 @@ public sealed unsafe partial class PdfDocument : IDisposable
     public string?[] PageLabels { get; }
     public DocumentInfo Info { get; }
     public bool IsModified { get; private set; }
+    /// <summary>Edits made so far, saved or not, so callers can tell whether the document changed since they last looked.</summary>
+    public int EditCount => Volatile.Read(ref _editCount);
+    private int _editCount;
 
     private PdfDocument(string path, IntPtr handle, void* buffer, long size)
     {
@@ -594,7 +597,7 @@ public sealed unsafe partial class PdfDocument : IDisposable
             {
                 Native.FPDFPage_CloseAnnot(annot);
             }
-            IsModified = true;
+            MarkEdited();
         }, WorkPriority.Visible);
     }
 
@@ -625,7 +628,7 @@ public sealed unsafe partial class PdfDocument : IDisposable
             {
                 Native.FPDFPage_CloseAnnot(annot);
             }
-            IsModified = true;
+            MarkEdited();
         }, WorkPriority.Visible);
     }
 
@@ -695,7 +698,7 @@ public sealed unsafe partial class PdfDocument : IDisposable
                 if (GetAnnotString(annot, KeyContents) == contents) return;
                 SetAnnotString(annot, KeyContents, contents);
                 SetAnnotString(annot, KeyModified, FormatPdfDate(DateTimeOffset.Now));
-                IsModified = true;
+                MarkEdited();
             }
             finally
             {
@@ -712,11 +715,17 @@ public sealed unsafe partial class PdfDocument : IDisposable
             int index = FindAnnotation(page, annotation);
             if (index >= 0 && Native.FPDFPage_RemoveAnnot(page, index) != 0)
             {
-                IsModified = true;
+                MarkEdited();
                 // Force PDFium to rebuild the page's cached annotation list.
                 EvictPage(annotation.PageIndex);
             }
         }, WorkPriority.Visible);
+    }
+
+    private void MarkEdited()
+    {
+        IsModified = true;
+        Interlocked.Increment(ref _editCount);
     }
 
     // ---------------------------------------------------------------- search

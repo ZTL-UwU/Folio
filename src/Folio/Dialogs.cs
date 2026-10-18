@@ -22,6 +22,31 @@ internal static class Dialogs
         return dialog;
     }
 
+    /// <summary>The last dialog shown or waiting to be shown in each window.</summary>
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<XamlRoot, Task> Queues = [];
+
+    /// <summary>
+    /// Shows <paramref name="dialog"/> once the dialogs before it in its window have closed. A window can only
+    /// show one at a time, and ShowAsync throws for a second, which a dialog asked for from code (opening a
+    /// file while a password is asked for, a shortcut) could otherwise hit.
+    /// </summary>
+    public static async Task<ContentDialogResult> ShowAsync(ContentDialog dialog)
+    {
+        var root = dialog.XamlRoot;
+        var previous = Queues.TryGetValue(root, out var last) ? last : Task.CompletedTask;
+        var done = new TaskCompletionSource();
+        Queues.AddOrUpdate(root, done.Task);
+        try
+        {
+            await previous;
+            return await dialog.ShowAsync();
+        }
+        finally
+        {
+            done.SetResult();
+        }
+    }
+
     public static async Task ShowPropertiesAsync(XamlRoot root, PdfDocument document)
     {
         var info = document.Info;
@@ -56,7 +81,7 @@ internal static class Dialogs
         dialog.Content = new ScrollViewer { Content = panel, MaxHeight = 520, Padding = new Thickness(0, 0, 16, 0) };
         dialog.CloseButtonText = "Close";
         dialog.DefaultButton = ContentDialogButton.Close;
-        await dialog.ShowAsync();
+        await ShowAsync(dialog);
     }
 
     private static FrameworkElement Section(string title, List<(string Label, string Value)> rows)
@@ -169,7 +194,7 @@ internal static class Dialogs
         dialog.Content = new ScrollViewer { Content = panel, MaxHeight = 520, Padding = new Thickness(0, 0, 16, 0) };
         dialog.CloseButtonText = "Close";
         dialog.DefaultButton = ContentDialogButton.Close;
-        await dialog.ShowAsync();
+        await ShowAsync(dialog);
     }
 
     public static async Task ShowAboutAsync(XamlRoot root)
@@ -214,6 +239,6 @@ internal static class Dialogs
         dialog.Content = panel;
         dialog.CloseButtonText = "Close";
         dialog.DefaultButton = ContentDialogButton.Close;
-        await dialog.ShowAsync();
+        await ShowAsync(dialog);
     }
 }

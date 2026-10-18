@@ -214,6 +214,8 @@ public sealed partial class DocumentView : UserControl
     public bool HasSelection => GetSelection() is { } s && s.Start.CompareTo(s.End) < 0;
     /// <summary>Whether an open note has text that isn't in the document yet.</summary>
     public bool HasPendingEdits => _noteEdits.Any(e => e.IsChanged);
+    /// <summary>Changes whenever the text of an open note does, to tell whether anything was typed since it was last read.</summary>
+    public int NoteTextVersion { get; private set; }
 
     public void SetDocument(PdfDocument? document, RecentDocument? restore = null)
     {
@@ -2232,6 +2234,7 @@ public sealed partial class DocumentView : UserControl
         };
         if (string.IsNullOrEmpty(header.Text)) header.Visibility = Visibility.Collapsed;
         var edit = new NoteEdit(document, annotation, box);
+        box.TextChanged += (_, _) => NoteTextVersion++;
         _noteEdits.Add(edit);
         delete.Click += (_, _) =>
         {

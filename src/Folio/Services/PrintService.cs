@@ -16,8 +16,9 @@ internal static class PrintService
     private static readonly Dictionary<IntPtr, Windows.Foundation.TypedEventHandler<PrintManager, PrintTaskRequestedEventArgs>> Handlers = [];
 
     /// <summary>
-    /// Shows the print dialog. <paramref name="reportProblem"/> is called (on any thread) when
-    /// pages couldn't be rendered after the dialog has closed.
+    /// Shows the print dialog, and completes once the job has been sent or the dialog closed without
+    /// printing, so the document stays open until then. <paramref name="reportProblem"/> is called (on
+    /// any thread) when pages couldn't be rendered after the dialog has closed.
     /// </summary>
     public static async Task PrintAsync(Window window, PdfDocument document, string title, Action<string> reportProblem)
     {
@@ -27,6 +28,7 @@ internal static class PrintService
         var printDocument = new PrintDocument();
         var source = printDocument.DocumentSource;
         PrintTaskOptions? options = null;
+        var completed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 
         printDocument.Paginate += (_, e) =>
         {
@@ -83,6 +85,8 @@ internal static class PrintService
         void OnRequested(PrintManager sender, PrintTaskRequestedEventArgs args)
         {
             var task = args.Request.CreatePrintTask(title, request => request.SetSource(source));
+            // Raised when the job was sent, failed, or was cancelled or abandoned in the dialog.
+            task.Completed += (_, _) => completed.TrySetResult();
             task.Options.DisplayedOptions.Clear();
             task.Options.DisplayedOptions.Add(StandardPrintTaskOptions.Copies);
             task.Options.DisplayedOptions.Add(StandardPrintTaskOptions.CustomPageRanges);
@@ -98,7 +102,7 @@ internal static class PrintService
         Windows.Foundation.TypedEventHandler<PrintManager, PrintTaskRequestedEventArgs> handler = OnRequested;
         Handlers[hwnd] = handler;
         manager.PrintTaskRequested += handler;
-        await PrintManagerInterop.ShowPrintUIForWindowAsync(hwnd);
+        if (await PrintManagerInterop.ShowPrintUIForWindowAsync(hwnd)) await completed.Task;
     }
 
     /// <summary>Drops the print handler for a window that's closing, so it doesn't keep the document alive.</summary>
