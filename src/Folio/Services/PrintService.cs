@@ -16,6 +16,12 @@ internal static class PrintService
     private static readonly Dictionary<IntPtr, Windows.Foundation.TypedEventHandler<PrintManager, PrintTaskRequestedEventArgs>> Handlers = [];
 
     /// <summary>
+    /// Largest page image, in pixels. Pages are fitted to the paper, so this only lowers the resolution for
+    /// large-format paper (A0 at 200 dpi is 62 MP), which <see cref="PdfDocument.RenderAsync"/> would refuse.
+    /// </summary>
+    private const double MaxPagePixels = 32_000_000;
+
+    /// <summary>
     /// Shows the print dialog, and completes once the job has been sent or the dialog closed without
     /// printing, so the document stays open until then. <paramref name="reportProblem"/> is called (on
     /// any thread) when pages couldn't be rendered after the dialog has closed.
@@ -158,9 +164,13 @@ internal static class PrintService
         bool rotate = (size.Width > size.Height) != (imageable.Width > imageable.Height);
         double w = rotate ? size.Height : size.Width, h = rotate ? size.Width : size.Height;
         double fit = Math.Min(imageable.Width / (w * 96 / 72), imageable.Height / (h * 96 / 72));
-        double scale = dpi / 72 * Math.Min(1, fit);
+        double scale = Math.Min(dpi / 72 * Math.Min(1, fit), Math.Sqrt(MaxPagePixels / (w * h)));
         var region = new RectInt32(0, 0, Math.Max(1, (int)(w * scale)), Math.Max(1, (int)(h * scale)));
-        using var buffer = await document.RenderAsync(index, scale, rotate ? 90 : 0, region, false, WorkPriority.Visible, CancellationToken.None);
+        // As it prints, the way Folio's own dialog renders it: annotations marked print-only shown and
+        // screen-only ones left out, and grey when black and white is picked.
+        bool grayscale = options?.ColorMode is PrintColorMode.Grayscale or PrintColorMode.Monochrome;
+        using var buffer = await document.RenderAsync(index, scale, rotate ? 90 : 0, region, false, WorkPriority.Visible, CancellationToken.None,
+            printing: true, grayscale: grayscale);
         if (buffer is null) return null;
 
         var image = new Image
