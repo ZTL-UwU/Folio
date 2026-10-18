@@ -14,6 +14,7 @@ public sealed partial class PdfDocument
         });
     }
 
+    /// <summary>Every page's annotations. A page that can't be loaded has none, so it doesn't hide the others'.</summary>
     public Task<List<PdfAnnotation>> GetAllAnnotationsAsync(CancellationToken token)
     {
         return Task.Run(async () =>
@@ -22,7 +23,17 @@ public sealed partial class PdfDocument
             for (int i = 0; i < PageCount; i++)
             {
                 int index = i;
-                all.AddRange(await PdfWorker.Run(() => ReadAnnotations(index), WorkPriority.Background, token).ConfigureAwait(false));
+                all.AddRange(await PdfWorker.Run(() =>
+                {
+                    try
+                    {
+                        return ReadAnnotations(index);
+                    }
+                    catch (InvalidDataException)
+                    {
+                        return [];
+                    }
+                }, WorkPriority.Background, token).ConfigureAwait(false));
             }
             return all;
         }, token);

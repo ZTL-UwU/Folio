@@ -38,6 +38,27 @@ public sealed class PdfDocumentTests : IDisposable
     }
 
     [Fact]
+    public async Task GetAllAnnotations_SkipsPagesThatCantBeLoaded()
+    {
+        string path = _temp.Write("doc.pdf", TestPdf.Create());
+        using (var document = await PdfDocument.OpenAsync(path))
+        {
+            await document.AddNoteAsync(0, new Point(20, 20), Yellow, "kept");
+            await document.SaveAsync(path);
+        }
+        // The page tree claims a second page that isn't there; the edit keeps the file's byte offsets.
+        string text = System.Text.Encoding.Latin1.GetString(File.ReadAllBytes(path));
+        Assert.Contains("/Count 1", text);
+        File.WriteAllBytes(path, System.Text.Encoding.Latin1.GetBytes(text.Replace("/Count 1", "/Count 2")));
+
+        using var broken = await PdfDocument.OpenAsync(path);
+        Assert.Equal(2, broken.PageCount);
+        await Assert.ThrowsAsync<InvalidDataException>(() => broken.GetPageTextAsync(1));
+        var note = Assert.Single(await broken.GetAllAnnotationsAsync(CancellationToken.None));
+        Assert.Equal("kept", note.Contents);
+    }
+
+    [Fact]
     public async Task Save_KeepsMarkOfTheWeb()
     {
         const string zone = "[ZoneTransfer]\r\nZoneId=3\r\nHostUrl=https://example.com/doc.pdf\r\n";
