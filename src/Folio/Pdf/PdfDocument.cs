@@ -36,6 +36,8 @@ public sealed unsafe partial class PdfDocument : IDisposable
     public const int MaxPages = 1_000_000;
     /// <summary>Largest embedded file that's extracted: the data is copied into one managed array, so this is the array limit (just under 2 GB).</summary>
     public static long MaxAttachmentBytes => Array.MaxLength;
+    /// <summary>Longest link target read, in characters; anything longer isn't a usable address, so the link is left out.</summary>
+    private const int MaxLinkLength = 32 * 1024;
 
     private IntPtr _handle;
     private void* _buffer;
@@ -392,7 +394,7 @@ public sealed unsafe partial class PdfDocument : IDisposable
                     for (int i = 0; i < n; i++)
                     {
                         int len = Native.FPDFLink_GetURL(web, i, null, 0);
-                        if (len <= 1) continue;
+                        if (len <= 1 || len > MaxLinkLength) continue;
                         var chars = new char[len];
                         fixed (char* c = chars) Native.FPDFLink_GetURL(web, i, c, len);
                         string url = new string(chars, 0, len - 1);
@@ -453,7 +455,7 @@ public sealed unsafe partial class PdfDocument : IDisposable
         if (type == Native.PDFACTION_URI)
         {
             uint size = Native.FPDFAction_GetURIPath(_handle, action, null, 0);
-            if (size <= 1) return null;
+            if (size <= 1 || size > MaxLinkLength) return null;
             var buffer = new byte[size];
             fixed (byte* b = buffer) Native.FPDFAction_GetURIPath(_handle, action, b, size);
             return new PdfDestination { Uri = Encoding.UTF8.GetString(buffer, 0, (int)size - 1) };
@@ -866,7 +868,8 @@ public sealed unsafe partial class PdfDocument : IDisposable
             IntPtr a = Native.FPDFDoc_GetAttachment(_handle, attachment.Index);
             if (a == IntPtr.Zero) return [];
             uint size = 0;
-            Native.FPDFAttachment_GetFile(a, null, 0, &size);
+            // Fails, leaving the size alone, when the embedded file's data can't be read.
+            if (Native.FPDFAttachment_GetFile(a, null, 0, &size) == 0) throw new IOException("The attachment couldn't be read from the document.");
             if (size > MaxAttachmentBytes) throw new IOException("The attachment is too large to extract. Folio extracts files up to 2 GB.");
             byte[] data;
             try
@@ -877,7 +880,11 @@ public sealed unsafe partial class PdfDocument : IDisposable
             {
                 throw new IOException("There isn't enough memory to extract the attachment.");
             }
-            fixed (byte* p = data) Native.FPDFAttachment_GetFile(a, p, size, &size);
+            uint read = 0;
+            fixed (byte* p = data)
+            {
+                if (Native.FPDFAttachment_GetFile(a, p, size, &read) == 0 || read != size) throw new IOException("The attachment couldn't be read from the document.");
+            }
             return data;
         }, WorkPriority.Visible);
     }
