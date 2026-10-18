@@ -27,8 +27,23 @@ internal static class Dialogs
     private static Task _lastDialog = Task.CompletedTask;
     /// <summary>The dialog on screen, in whichever window.</summary>
     private static ContentDialog? _openDialog;
+    /// <summary>Dialogs waiting for their turn.</summary>
+    private static readonly List<ContentDialog> Waiting = [];
     /// <summary>Windows that have closed, whose dialogs still waiting are skipped.</summary>
     private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<XamlRoot, object> ClosedRoots = [];
+
+    /// <summary>Raised when a dialog opens or closes, or starts or stops waiting for its turn.</summary>
+    public static event EventHandler? QueueChanged;
+
+    /// <summary>The window of the dialog on screen, if there is one.</summary>
+    public static XamlRoot? OpenRoot => _openDialog?.XamlRoot;
+
+    /// <summary>
+    /// Whether the window <paramref name="root"/> belongs to has a dialog waiting for one open in another window,
+    /// which the window says it's waiting for.
+    /// </summary>
+    public static bool IsWaitingForOtherWindow(XamlRoot root) =>
+        OpenRoot is { } open && open != root && Waiting.Any(d => d.XamlRoot == root);
 
     /// <summary>
     /// Closes the dialog of a window that's closing, so the dialogs of other windows waiting behind it get
@@ -45,24 +60,34 @@ internal static class Dialogs
     /// per UI thread, not per window, and every Folio window shares the one thread: ShowAsync throws for a second
     /// dialog in any window, which one asked for from code (a file opened from Explorer that needs a password, a
     /// shortcut) could otherwise hit. A dialog whose window closes, before or while it's shown, comes back as
-    /// cancelled.
+    /// cancelled, and so does one asked for while its window already has one waiting for another window: one
+    /// waiting is enough, rather than a dialog for every key pressed meanwhile popping up one after another.
     /// </summary>
     public static async Task<ContentDialogResult> ShowAsync(ContentDialog dialog)
     {
+        if (dialog.XamlRoot is { } owner && IsWaitingForOtherWindow(owner)) return ContentDialogResult.None;
         var previous = _lastDialog;
         var done = new TaskCompletionSource();
         _lastDialog = done.Task;
         try
         {
-            await previous;
+            if (!previous.IsCompleted)
+            {
+                Waiting.Add(dialog);
+                QueueChanged?.Invoke(null, EventArgs.Empty);
+                await previous;
+                Waiting.Remove(dialog);
+            }
             if (dialog.XamlRoot is not { } root || ClosedRoots.TryGetValue(root, out _)) return ContentDialogResult.None;
             _openDialog = dialog;
+            QueueChanged?.Invoke(null, EventArgs.Empty);
             return await dialog.ShowAsync();
         }
         finally
         {
             if (_openDialog == dialog) _openDialog = null;
             done.SetResult();
+            QueueChanged?.Invoke(null, EventArgs.Empty);
         }
     }
 

@@ -42,6 +42,7 @@ public sealed partial class MainWindow : Window
     private List<RecentItem> _recentItems = [];
     private readonly ObservableCollection<RecentItem> _recentMatches = [];
     private readonly EventHandler _recentChanged;
+    private readonly EventHandler _dialogQueueChanged;
     /// <summary>Folders under %TEMP%\Folio holding attachments this window extracted; deleted when it closes.</summary>
     private readonly List<string> _attachmentFolders = [];
     private PdfDocument? _document;
@@ -180,6 +181,9 @@ public sealed partial class MainWindow : Window
         // AppState is static: unsubscribed in OnWindowClosed, or it would keep every closed window alive.
         _recentChanged = (_, _) => DispatcherQueue.TryEnqueue(RefreshRecent);
         AppState.RecentChanged += _recentChanged;
+        // Dialogs is static too: unsubscribed in OnWindowClosed as well.
+        _dialogQueueChanged = (_, _) => UpdateDialogWait();
+        Dialogs.QueueChanged += _dialogQueueChanged;
         RefreshRecent();
         UpdateChrome();
         ApplyTheme();
@@ -670,6 +674,7 @@ public sealed partial class MainWindow : Window
         // A dialog left open here would hold up those of every other window.
         if (Root.XamlRoot is { } root) Dialogs.WindowClosed(root);
         AppState.RecentChanged -= _recentChanged;
+        Dialogs.QueueChanged -= _dialogQueueChanged;
         App.OpenWindows.Remove(this);
         if (App.LastActiveWindow == this) App.LastActiveWindow = null;
         // The window, its AppWindow and the timers aren't XAML elements, so the garbage collector can't trace
@@ -913,6 +918,23 @@ public sealed partial class MainWindow : Window
         Notification.Severity = severity;
         Notification.ActionButton = action;
         Notification.IsOpen = true;
+    }
+
+    /// <summary>
+    /// Says so while a dialog of this window waits for one in another window, which could be out of sight
+    /// (behind this one, or on another screen): Windows shows one dialog at a time for all of Folio's windows.
+    /// </summary>
+    private void UpdateDialogWait()
+    {
+        var root = Root.XamlRoot;
+        DialogWaitBar.IsOpen = root is not null && Dialogs.IsWaitingForOtherWindow(root);
+    }
+
+    /// <summary>Brings forward the window with the dialog this one's is waiting for.</summary>
+    private void OnShowWaitingDialog(object sender, RoutedEventArgs e)
+    {
+        var open = Dialogs.OpenRoot;
+        App.OpenWindows.FirstOrDefault(w => w != this && w.Root.XamlRoot == open)?.BringToFront();
     }
 
     private void ShowHint(string text)

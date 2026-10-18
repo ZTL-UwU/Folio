@@ -927,15 +927,32 @@
             Grid.Row="1"
             Visibility="Collapsed" />
 
-        <!--  Transient notifications  -->
-        <InfoBar
-            x:Name="Notification"
+        <StackPanel
             Grid.Row="1"
             MaxWidth="560"
             Margin="24"
             HorizontalAlignment="Center"
             VerticalAlignment="Bottom"
-            IsOpen="False" />
+            Spacing="8">
+            <!--
+                A dialog of this window waits for one in another: Windows shows one at a time for all of them.
+                Informational bars have a see-through background, which floating over a page would be unreadable.
+            -->
+            <InfoBar
+                x:Name="DialogWaitBar"
+                Title="Waiting for another window"
+                Background="{ThemeResource AcrylicInAppFillColorDefaultBrush}"
+                IsClosable="False"
+                IsOpen="False"
+                Message="Close the dialog in the other Folio window to see this one.">
+                <InfoBar.ActionButton>
+                    <Button Click="OnShowWaitingDialog" Content="Show" />
+                </InfoBar.ActionButton>
+            </InfoBar>
+
+            <!--  Transient notifications  -->
+            <InfoBar x:Name="Notification" IsOpen="False" />
+        </StackPanel>
 
         <Border
             x:Name="FullscreenHint"
