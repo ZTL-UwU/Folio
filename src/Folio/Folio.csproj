@@ -138,8 +138,23 @@
   <ItemGroup>
     <Content Include="..\..\LICENSE" Link="licenses\LICENSE.txt" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="..\..\THIRD-PARTY-NOTICES.md" Link="licenses\THIRD-PARTY-NOTICES.md" CopyToOutputDirectory="PreserveNewest" />
-    <Content Include="..\..\licenses\PDFium-LICENSE.txt" Link="licenses\PDFium-LICENSE.txt" CopyToOutputDirectory="PreserveNewest" />
+    <!-- PDFium's license and those of the libraries pdfium.dll is built with, from the pdfium-binaries release of the same build. -->
+    <Content Include="..\..\licenses\PDFium\*" Link="licenses\PDFium\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="$(NuGetPackageRoot)microsoft.windowsappsdk.runtime\$(WindowsAppSdkVersion)\license.txt" Link="licenses\WindowsAppSDK-license.txt" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="$(NuGetPackageRoot)microsoft.windowsappsdk.runtime\$(WindowsAppSdkVersion)\NOTICE.txt" Link="licenses\WindowsAppSDK-NOTICE.txt" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
+  <!-- Folio.exe and the thumbnail handler have the .NET runtime compiled in, so its license and notices ship
+       too, taken from the runtime pack the build used. -->
+  <Target Name="AddDotNetLicenses" BeforeTargets="AssignTargetPaths" DependsOnTargets="ResolveFrameworkReferences">
+    <ItemGroup>
+      <_DotNetRuntimePack Include="@(ResolvedRuntimePack)" Condition="'%(ResolvedRuntimePack.FrameworkName)' == 'Microsoft.NETCore.App'" />
+      <_DotNetLicense Include="@(_DotNetRuntimePack->'%(PackageDirectory)\LICENSE.TXT')" Link="licenses\dotnet-LICENSE.txt" />
+      <_DotNetLicense Include="@(_DotNetRuntimePack->'%(PackageDirectory)\THIRD-PARTY-NOTICES.TXT')" Link="licenses\dotnet-THIRD-PARTY-NOTICES.txt" />
+    </ItemGroup>
+    <Error Condition="'@(_DotNetRuntimePack)' == ''" Text="The .NET runtime pack wasn't resolved, so its license files can't be copied." />
+    <Error Condition="!Exists('%(_DotNetLicense.FullPath)')" Text="%(_DotNetLicense.FullPath) is missing." />
+    <ItemGroup>
+      <Content Include="@(_DotNetLicense)" CopyToOutputDirectory="PreserveNewest" />
+    </ItemGroup>
+  </Target>
 </Project>

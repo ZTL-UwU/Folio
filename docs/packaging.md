@@ -11,6 +11,13 @@ Like any publish, building the package needs Visual Studio's C++ build tools ("D
 
 Packages land in `out\AppPackages\`. CI's `msix` job combines them into `Folio_<version>.msixbundle` for Partner Center. They're unsigned; the Store signs them.
 
-To test locally, enable Developer Mode and run `Add-AppxPackage -Register src\Folio\bin\msix\x64\Release\net10.0-windows10.0.26100.0\win-x64\AppxManifest.xml`. Remove with `Get-AppxPackage TonyZhang.FolioPDF | Remove-AppxPackage`. To see thumbnails, make Folio the default PDF app in Settings > Apps > Default apps; Explorer may keep showing icons it already cached until you clear thumbnails in Disk Cleanup.
+To test locally, enable Developer Mode, unpack the package and register the unpacked copy. Don't register the `AppxManifest.xml` under `bin\msix`: that folder has the JIT build, without the Native AOT `Folio.exe` the manifest starts, so the app is listed but won't launch.
+
+```powershell
+Expand-Archive out\AppPackages\Folio_1.0.0.0_x64_Test\Folio_1.0.0.0_x64.msix out\msix-layout\x64 -Force
+Add-AppxPackage -Register out\msix-layout\x64\AppxManifest.xml
+```
+
+Remove with `Get-AppxPackage TonyZhang.FolioPDF | Remove-AppxPackage`. To see thumbnails, make Folio the default PDF app in Settings > Apps > Default apps; Explorer may keep showing icons it already cached until you clear thumbnails in Disk Cleanup.
 
 The manifest's `Name`, `Publisher` and `PublisherDisplayName` are the ones on the app's Product identity page in Partner Center; keep them in step if that ever changes. The version is the manifest's `Identity Version` (last part must be 0), not the project's `<Version>`.

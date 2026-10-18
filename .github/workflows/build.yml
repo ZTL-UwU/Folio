@@ -37,7 +37,9 @@ jobs:
         run: |
           $out = "out/${{ matrix.rid }}"
           # Folio.pri holds the compiled XAML; the app crashes on launch without it.
-          foreach ($file in "Folio.exe", "Folio.pri", "licenses/LICENSE.txt", "licenses/THIRD-PARTY-NOTICES.md", "licenses/PDFium-LICENSE.txt", "licenses/WindowsAppSDK-license.txt") {
+          $licenses = "LICENSE.txt", "THIRD-PARTY-NOTICES.md", "WindowsAppSDK-license.txt", "WindowsAppSDK-NOTICE.txt", "dotnet-LICENSE.txt", "dotnet-THIRD-PARTY-NOTICES.txt"
+          $licenses += Get-ChildItem licenses/PDFium -File | ForEach-Object { "PDFium/$($_.Name)" }
+          foreach ($file in @("Folio.exe", "Folio.pri") + ($licenses | ForEach-Object { "licenses/$_" })) {
             if (-not (Test-Path "$out/$file")) { throw "Missing $file" }
           }
           # The IMAGE_FILE_HEADER machine field must match the target, or the app fails at the first PDFium call.
@@ -85,11 +87,15 @@ jobs:
           New-Item -ItemType Directory out/msix | Out-Null
           Copy-Item out/AppPackages/*/*.msix out/msix
           if ((Get-ChildItem out/msix).Count -ne 2) { throw "Expected an x64 and an ARM64 package" }
-          # The manifest registers the Explorer thumbnail handler at this path.
+          # The manifest registers the Explorer thumbnail handler at this path; the license texts ship as in the unpackaged build.
+          $required = @("Folio.Thumbnails.dll", "licenses/LICENSE.txt", "licenses/THIRD-PARTY-NOTICES.md", "licenses/dotnet-LICENSE.txt", "licenses/dotnet-THIRD-PARTY-NOTICES.txt")
+          $required += Get-ChildItem licenses/PDFium -File | ForEach-Object { "licenses/PDFium/$($_.Name)" }
           Add-Type -AssemblyName System.IO.Compression.FileSystem
           foreach ($msix in Get-ChildItem out/msix) {
             $zip = [IO.Compression.ZipFile]::OpenRead($msix.FullName)
-            try { if ($zip.Entries.FullName -notcontains "Folio.Thumbnails.dll") { throw "$($msix.Name) is missing Folio.Thumbnails.dll" } }
+            try {
+              foreach ($file in $required) { if ($zip.Entries.FullName -notcontains $file) { throw "$($msix.Name) is missing $file" } }
+            }
             finally { $zip.Dispose() }
           }
           & $makeappx.FullName bundle /d out/msix /p "out/Folio_$version.msixbundle" /bv $version /o
