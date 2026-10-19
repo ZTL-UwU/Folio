@@ -1,5 +1,5 @@
 <p align="center">
-  <img alt="Folio hero image" src="./.github/assets/hero.png" />
+  <img alt="Recto hero image" src="./.github/assets/hero.png" />
 </p>
 
 A simple PDF viewer for Windows 11, modeled on [GNOME Papers](https://apps.gnome.org/Papers/) and built with WinUI 3.
@@ -7,13 +7,13 @@ A simple PDF viewer for Windows 11, modeled on [GNOME Papers](https://apps.gnome
 ## Building from source
 
 ```powershell
-dotnet build src/Folio/Folio.csproj -c Release
+dotnet build src/Recto/Recto.csproj -c Release
 ```
 
 ## Performance
 
 <p align="center">
-  <img alt="Time to first page and memory use of Folio, Microsoft Edge, Adobe Acrobat and SumatraPDF, and File Explorer thumbnail time of Folio and PowerToys" src="./.github/assets/benchmark.png" />
+  <img alt="Time to first page and memory use of Recto, Microsoft Edge, Adobe Acrobat and SumatraPDF, and File Explorer thumbnail time of Recto and PowerToys" src="./.github/assets/benchmark.png" />
 </p>
 
 Measured with the [benchmark tool](docs/tools.md#benchmark). It's not a rigorous benchmark: an app can't be asked when its first page is ready, so the tool watches the screen for it and the times are only approximate. Take the numbers with a grain of salt. They reflect the overall experience more than exact speed.

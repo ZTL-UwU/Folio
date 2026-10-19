@@ -30,16 +30,16 @@ jobs:
 
       # Publishing (not just building) compiles the app with Native AOT, which makes it start faster.
       - name: Publish
-        run: dotnet publish src/Folio/Folio.csproj -c Release -p:Platform=${{ matrix.platform }} -r ${{ matrix.rid }} -o out/${{ matrix.rid }}
+        run: dotnet publish src/Recto/Recto.csproj -c Release -p:Platform=${{ matrix.platform }} -r ${{ matrix.rid }} -o out/${{ matrix.rid }}
 
       - name: Check native binaries and licenses
         shell: pwsh
         run: |
           $out = "out/${{ matrix.rid }}"
-          # Folio.pri holds the compiled XAML; the app crashes on launch without it.
+          # Recto.pri holds the compiled XAML; the app crashes on launch without it.
           $licenses = "LICENSE.txt", "THIRD-PARTY-NOTICES.md", "WindowsAppSDK-license.txt", "WindowsAppSDK-NOTICE.txt", "dotnet-LICENSE.txt", "dotnet-THIRD-PARTY-NOTICES.txt"
           $licenses += Get-ChildItem licenses/PDFium -File | ForEach-Object { "PDFium/$($_.Name)" }
-          foreach ($file in @("Folio.exe", "Folio.pri") + ($licenses | ForEach-Object { "licenses/$_" })) {
+          foreach ($file in @("Recto.exe", "Recto.pri") + ($licenses | ForEach-Object { "licenses/$_" })) {
             if (-not (Test-Path "$out/$file")) { throw "Missing $file" }
           }
           # The IMAGE_FILE_HEADER machine field must match the target, or the app fails at the first PDFium call.
@@ -51,16 +51,16 @@ jobs:
 
       - name: Test
         if: matrix.platform == 'x64'
-        run: dotnet test tests/Folio.Tests/Folio.Tests.csproj -c Release
+        run: dotnet test tests/Recto.Tests/Recto.Tests.csproj -c Release
 
       # The developer tools (docs/tools.md) aren't shipped, but should keep compiling.
       - name: Build tools
         if: matrix.platform == 'x64'
-        run: dotnet build tools/Folio.Tools/Folio.Tools.csproj -c Release
+        run: dotnet build tools/Recto.Tools/Recto.Tools.csproj -c Release
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: Folio-${{ matrix.rid }}
+          name: Recto-${{ matrix.rid }}
           path: out/${{ matrix.rid }}/
 
   # The Store package: one MSIX per architecture, combined into a bundle for Partner Center.
@@ -75,21 +75,21 @@ jobs:
 
       - name: Package
         run: |
-          dotnet publish src/Folio/Folio.csproj -c Release -p:Platform=x64 -r win-x64 -p:WindowsPackageType=MSIX
-          dotnet publish src/Folio/Folio.csproj -c Release -p:Platform=ARM64 -r win-arm64 -p:WindowsPackageType=MSIX
+          dotnet publish src/Recto/Recto.csproj -c Release -p:Platform=x64 -r win-x64 -p:WindowsPackageType=MSIX
+          dotnet publish src/Recto/Recto.csproj -c Release -p:Platform=ARM64 -r win-arm64 -p:WindowsPackageType=MSIX
 
       - name: Bundle
         shell: pwsh
         run: |
           $makeappx = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin\*\x64\makeappx.exe" |
             Sort-Object { [version]$_.Directory.Parent.Name } | Select-Object -Last 1
-          $version = ([xml](Get-Content src/Folio/Package.appxmanifest)).Package.Identity.Version
+          $version = ([xml](Get-Content src/Recto/Package.appxmanifest)).Package.Identity.Version
           New-Item -ItemType Directory out/msix | Out-Null
           Copy-Item out/AppPackages/*/*.msix out/msix
           if ((Get-ChildItem out/msix).Count -ne 2) { throw "Expected an x64 and an ARM64 package" }
           # The manifest registers the Explorer thumbnail handler at this path, and it and the app load pdfium.dll from the
           # package root; the license texts ship as in the unpackaged build.
-          $required = @("Folio.Thumbnails.dll", "pdfium.dll", "licenses/LICENSE.txt", "licenses/THIRD-PARTY-NOTICES.md", "licenses/dotnet-LICENSE.txt", "licenses/dotnet-THIRD-PARTY-NOTICES.txt")
+          $required = @("Recto.Thumbnails.dll", "pdfium.dll", "licenses/LICENSE.txt", "licenses/THIRD-PARTY-NOTICES.md", "licenses/dotnet-LICENSE.txt", "licenses/dotnet-THIRD-PARTY-NOTICES.txt")
           $required += Get-ChildItem licenses/PDFium -File | ForEach-Object { "licenses/PDFium/$($_.Name)" }
           Add-Type -AssemblyName System.IO.Compression.FileSystem
           foreach ($msix in Get-ChildItem out/msix) {
@@ -99,10 +99,10 @@ jobs:
             }
             finally { $zip.Dispose() }
           }
-          & $makeappx.FullName bundle /d out/msix /p "out/Folio_$version.msixbundle" /bv $version /o
+          & $makeappx.FullName bundle /d out/msix /p "out/Recto_$version.msixbundle" /bv $version /o
           if ($LASTEXITCODE) { throw "makeappx failed" }
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: Folio-msixbundle
-          path: out/Folio_*.msixbundle
+          name: Recto-msixbundle
+          path: out/Recto_*.msixbundle

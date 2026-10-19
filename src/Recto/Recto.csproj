@@ -1,0 +1,160 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows10.0.26100.0</TargetFramework>
+    <TargetPlatformMinVersion>10.0.22621.0</TargetPlatformMinVersion>
+    <!-- Newer than the .NET SDK's default Windows SDK projection: C#/WinRT 2.3.1 makes
+         PrintManagerInterop.ShowPrintUIForWindowAsync work under Native AOT (microsoft/CsWinRT#1871). -->
+    <WindowsSdkPackageVersion>10.0.26100.87</WindowsSdkPackageVersion>
+    <RootNamespace>Recto</RootNamespace>
+    <AssemblyName>Recto</AssemblyName>
+    <Version>1.0.0</Version>
+    <Product>Recto</Product>
+    <Copyright>Copyright (c) 2026 ZTL-UwU</Copyright>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>Assets\AppIcon.ico</ApplicationIcon>
+    <Platforms>x64;ARM64</Platforms>
+    <RuntimeIdentifiers>win-x64;win-arm64</RuntimeIdentifiers>
+    <UseWinUI>true</UseWinUI>
+    <!-- Unpackaged by default; -p:WindowsPackageType=MSIX builds the Store package (see below). -->
+    <WindowsPackageType Condition="'$(WindowsPackageType)' == ''">None</WindowsPackageType>
+    <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+    <!-- Program.cs checks for a running instance before starting XAML. -->
+    <DefineConstants>$(DefineConstants);DISABLE_XAML_GENERATED_MAIN</DefineConstants>
+    <!-- `dotnet publish` (what CI ships) compiles the app with Native AOT, so nothing is JIT-compiled
+         at startup. Like the thumbnail handler, that needs the MSVC linker (Visual Studio's C++ build
+         tools); `dotnet build` still runs on the JIT. -->
+    <PublishAot>true</PublishAot>
+    <!-- Also warns about classes that implement .NET interfaces C#/WinRT maps to WinRT ones (IDisposable,
+         collections) without being partial, which breaks them under AOT if they're handed to WinRT. -->
+    <CsWinRTAotWarningLevel>2</CsWinRTAotWarningLevel>
+    <!-- Both builds bundle .NET, trimmed on publish to the code Recto actually reaches. Trimming
+         needs a self-contained build; it also means users don't have to install .NET. -->
+    <SelfContained>true</SelfContained>
+    <PublishTrimmed>true</PublishTrimmed>
+    <!-- Without it, publishing an unpackaged app leaves out Recto.pri and the compiled XAML, and it crashes on launch. -->
+    <EnableMsixTooling>true</EnableMsixTooling>
+  </PropertyGroup>
+  <!-- The Store installs the Windows App SDK framework package with the app, so it isn't bundled.
+       There's no such package for .NET, so that still is (see SelfContained above). -->
+  <PropertyGroup Condition="'$(WindowsPackageType)' == 'MSIX'">
+    <WindowsAppSDKSelfContained>false</WindowsAppSDKSelfContained>
+    <GenerateAppxPackageOnBuild>true</GenerateAppxPackageOnBuild>
+    <!-- The Store signs what it publishes. -->
+    <AppxPackageSigningEnabled>false</AppxPackageSigningEnabled>
+    <!-- Kept apart from the unpackaged build, which bundles a different set of runtime files. -->
+    <OutputPath>bin\msix\$(Platform)\$(Configuration)\</OutputPath>
+    <IntermediateOutputPath>obj\msix\$(Platform)\$(Configuration)\</IntermediateOutputPath>
+    <!-- One .msix per architecture under out\AppPackages; CI combines them into a bundle for the Store. -->
+    <AppxPackageDir>$(MSBuildProjectDirectory)\..\..\out\AppPackages\</AppxPackageDir>
+    <AppxBundle>Never</AppxBundle>
+  </PropertyGroup>
+  <!-- The package also registers the File Explorer thumbnail handler (see Package.appxmanifest). It's a
+       Native AOT DLL, published here for the same architecture and copied into the package root next to
+       pdfium.dll. Only the package registers it, so the unpackaged build leaves it out. -->
+  <PropertyGroup Condition="'$(WindowsPackageType)' == 'MSIX'">
+    <ThumbnailsProject>$(MSBuildThisFileDirectory)..\Recto.Thumbnails\Recto.Thumbnails.csproj</ThumbnailsProject>
+    <DotNetHost>$(DOTNET_HOST_PATH)</DotNetHost>
+    <DotNetHost Condition="'$(DotNetHost)' == ''">dotnet</DotNetHost>
+  </PropertyGroup>
+  <ItemGroup Condition="'$(WindowsPackageType)' == 'MSIX'">
+    <ThumbnailsSource Include="$(ThumbnailsProject);..\Recto.Thumbnails\*.cs" />
+  </ItemGroup>
+  <Target Name="PublishThumbnails" BeforeTargets="AssignTargetPaths" Condition="'$(WindowsPackageType)' == 'MSIX'"
+          Inputs="@(ThumbnailsSource)" Outputs="$(ProjectDir)$(IntermediateOutputPath)thumbnails\Recto.Thumbnails.dll">
+    <!-- With bin and obj folders of its own, so it doesn't collide with a solution build of the same project.
+         Forward slashes, as a trailing backslash would escape the closing quote. -->
+    <Exec Command="&quot;$(DotNetHost)&quot; publish &quot;$(ThumbnailsProject)&quot; -c $(Configuration) -r $(RuntimeIdentifier) -o &quot;$(ProjectDir)$(IntermediateOutputPath)thumbnails&quot; -p:BaseOutputPath=&quot;$(ProjectDir)$(IntermediateOutputPath)thumbnails-build/bin/&quot; -p:BaseIntermediateOutputPath=&quot;$(ProjectDir)$(IntermediateOutputPath)thumbnails-build/obj/&quot; -nologo" />
+    <ItemGroup>
+      <Content Include="$(ProjectDir)$(IntermediateOutputPath)thumbnails\Recto.Thumbnails.dll" Link="Recto.Thumbnails.dll" CopyToOutputDirectory="PreserveNewest" />
+    </ItemGroup>
+  </Target>
+  <!-- The About dialog shows which build this is under the version: the commit (from the .NET SDK's
+       Source Link), marked "-dirty" if the checkout had uncommitted changes, and a label. The label
+       defaults to the checkout's folder name, which tells worktrees apart (CI builds show just the
+       commit); set it with -p:RectoBuildLabel=... or a RectoBuildLabel environment variable. -->
+  <Target Name="AddBuildInfo" BeforeTargets="GetAssemblyAttributes" DependsOnTargets="InitializeSourceControlInformation">
+    <Exec Command="git status --porcelain" WorkingDirectory="$(MSBuildProjectDirectory)" ConsoleToMSBuild="true"
+          StandardOutputImportance="low" IgnoreExitCode="true" ContinueOnError="true">
+      <Output TaskParameter="ConsoleOutput" PropertyName="_GitStatus" />
+      <Output TaskParameter="ExitCode" PropertyName="_GitStatusExitCode" />
+    </Exec>
+    <PropertyGroup>
+      <_CheckoutRoot>$([MSBuild]::GetDirectoryNameOfFileAbove($(MSBuildProjectDirectory), 'Recto.sln'))</_CheckoutRoot>
+      <RectoBuildLabel Condition="'$(RectoBuildLabel)' == '' and '$(_CheckoutRoot)' != '' and '$(CI)' != 'true'">$([System.IO.Path]::GetFileName($(_CheckoutRoot)))</RectoBuildLabel>
+      <_BuildCommit Condition="'$(SourceRevisionId)' != ''">$(SourceRevisionId.Substring(0, $([System.Math]::Min(7, $(SourceRevisionId.Length)))))</_BuildCommit>
+      <_BuildCommit Condition="'$(_BuildCommit)' != '' and '$(_GitStatusExitCode)' == '0' and '$(_GitStatus)' != ''">$(_BuildCommit)-dirty</_BuildCommit>
+      <_BuildInfo>$(_BuildCommit)</_BuildInfo>
+      <_BuildInfo Condition="'$(_BuildInfo)' != '' and '$(RectoBuildLabel)' != ''">$(_BuildInfo) · $(RectoBuildLabel)</_BuildInfo>
+      <_BuildInfo Condition="'$(_BuildInfo)' == ''">$(RectoBuildLabel)</_BuildInfo>
+    </PropertyGroup>
+    <ItemGroup Condition="'$(_BuildInfo)' != ''">
+      <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute">
+        <_Parameter1>BuildInfo</_Parameter1>
+        <_Parameter2>$(_BuildInfo)</_Parameter2>
+      </AssemblyAttribute>
+    </ItemGroup>
+  </Target>
+  <PropertyGroup Condition="'$(RuntimeIdentifier)' == '' and '$(Platform)' == 'ARM64'">
+    <RuntimeIdentifier>win-arm64</RuntimeIdentifier>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(RuntimeIdentifier)' == ''">
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+  </PropertyGroup>
+  <!-- C#/WinRT finds the .NET class for an object coming from WinUI by its runtime class name, which
+       needs the class's metadata. Trimmed away, the object only gets the declared type, so casts like
+       `ItemsPanelRoot is ItemsWrapGrid` or `GetFocusedElement(...) is TextBox` quietly fail; this keeps
+       every WinUI (and AppWindow) class. -->
+  <ItemGroup>
+    <TrimmerRootAssembly Include="Microsoft.WinUI" />
+    <TrimmerRootAssembly Include="Microsoft.InteractiveExperiences.Projection" />
+  </ItemGroup>
+  <ItemGroup>
+    <Content Include="Assets\**" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+  <!-- Logos for Package.appxmanifest; the unpackaged build doesn't use them. -->
+  <ItemGroup Condition="'$(WindowsPackageType)' != 'MSIX'">
+    <Content Remove="Assets\Package\**" />
+  </ItemGroup>
+  <!-- The parts of Windows App SDK 2.5.1 that Recto uses. The Microsoft.WindowsAppSDK meta-package
+       also brings AI, ML, Search and Widgets, which add about 60 MB (onnxruntime, DirectML, ...) to every build.
+       Versions are the ones that meta-package pins; bump them together. -->
+  <PropertyGroup>
+    <WindowsAppSdkVersion>2.5.1</WindowsAppSdkVersion>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.WindowsAppSDK.Runtime" Version="$(WindowsAppSdkVersion)" />
+    <PackageReference Include="Microsoft.WindowsAppSDK.WinUI" Version="2.3.9" />
+    <PackageReference Include="Microsoft.WindowsAppSDK.Foundation" Version="2.3.12" />
+    <PackageReference Include="Microsoft.WindowsAppSDK.InteractiveExperiences" Version="2.1.9" />
+    <PackageReference Include="Microsoft.WindowsAppSDK.Base" Version="2.0.4" />
+    <PackageReference Include="bblanchon.PDFium.Win32" Version="156.0.8076" />
+  </ItemGroup>
+  <!-- License texts that have to ship with the binaries. See THIRD-PARTY-NOTICES.md. -->
+  <ItemGroup>
+    <Content Include="..\..\LICENSE" Link="licenses\LICENSE.txt" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\..\THIRD-PARTY-NOTICES.md" Link="licenses\THIRD-PARTY-NOTICES.md" CopyToOutputDirectory="PreserveNewest" />
+    <!-- PDFium's license and those of the libraries pdfium.dll is built with, from the pdfium-binaries release of the same build. -->
+    <Content Include="..\..\licenses\PDFium\*" Link="licenses\PDFium\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="$(NuGetPackageRoot)microsoft.windowsappsdk.runtime\$(WindowsAppSdkVersion)\license.txt" Link="licenses\WindowsAppSDK-license.txt" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="$(NuGetPackageRoot)microsoft.windowsappsdk.runtime\$(WindowsAppSdkVersion)\NOTICE.txt" Link="licenses\WindowsAppSDK-NOTICE.txt" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+  <!-- Recto.exe and the thumbnail handler have the .NET runtime compiled in, so its license and notices ship
+       too, taken from the runtime pack the build used. -->
+  <Target Name="AddDotNetLicenses" BeforeTargets="AssignTargetPaths" DependsOnTargets="ResolveFrameworkReferences">
+    <ItemGroup>
+      <_DotNetRuntimePack Include="@(ResolvedRuntimePack)" Condition="'%(ResolvedRuntimePack.FrameworkName)' == 'Microsoft.NETCore.App'" />
+      <_DotNetLicense Include="@(_DotNetRuntimePack->'%(PackageDirectory)\LICENSE.TXT')" Link="licenses\dotnet-LICENSE.txt" />
+      <_DotNetLicense Include="@(_DotNetRuntimePack->'%(PackageDirectory)\THIRD-PARTY-NOTICES.TXT')" Link="licenses\dotnet-THIRD-PARTY-NOTICES.txt" />
+    </ItemGroup>
+    <Error Condition="'@(_DotNetRuntimePack)' == ''" Text="The .NET runtime pack wasn't resolved, so its license files can't be copied." />
+    <Error Condition="!Exists('%(_DotNetLicense.FullPath)')" Text="%(_DotNetLicense.FullPath) is missing." />
+    <ItemGroup>
+      <Content Include="@(_DotNetLicense)" CopyToOutputDirectory="PreserveNewest" />
+    </ItemGroup>
+  </Target>
+</Project>
