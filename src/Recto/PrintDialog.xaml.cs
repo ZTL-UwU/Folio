@@ -573,7 +573,10 @@ public sealed partial class PrintDialog : ContentDialog
             ReleaseImages();
             return;
         }
-        double availableWidth = PreviewHost.ActualWidth, availableHeight = PreviewHost.ActualHeight;
+        // Leave room for the hairline around the paper, or it's clipped where the paper fills the space.
+        var border = Sheet.BorderThickness;
+        double availableWidth = PreviewHost.ActualWidth - border.Left - border.Right;
+        double availableHeight = PreviewHost.ActualHeight - border.Top - border.Bottom;
         if (!_paperKnown || availableWidth <= 0 || availableHeight <= 0) return;
 
         int index = _sheetIndex;
