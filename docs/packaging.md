@@ -20,4 +20,4 @@ Add-AppxPackage -Register out\msix-layout\x64\AppxManifest.xml
 
 Remove with `Get-AppxPackage TonyZhang.RectoPDF | Remove-AppxPackage`. To see thumbnails, make Recto the default PDF app in Settings > Apps > Default apps; Explorer may keep showing icons it already cached until you clear thumbnails in Disk Cleanup.
 
-The manifest's `Name`, `Publisher` and `PublisherDisplayName` are the ones on the app's Product identity page in Partner Center; keep them in step if that ever changes. The version is the manifest's `Identity Version` (last part must be 0), not the project's `<Version>`.
+The manifest's `Name`, `Publisher` and `PublisherDisplayName` are the ones on the app's Product identity page in Partner Center, and `Properties/DisplayName` ("Recto PDF") must be a name reserved there; keep them in step if that ever changes. The Start menu and taskbar show the shorter `VisualElements` `DisplayName`. The version is the manifest's `Identity Version` (last part must be 0), not the project's `<Version>`.
