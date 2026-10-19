@@ -172,12 +172,6 @@ public sealed partial class PrintDialog : ContentDialog
 
     private async void OnOpened(ContentDialog sender, ContentDialogOpenedEventArgs args)
     {
-        // Its window closed while it waited for another window's dialog.
-        if (_closeRequested)
-        {
-            Hide();
-            return;
-        }
         // Start on the printer list. Otherwise focus goes to the first control in the dialog, which is
         // one of the preview's sheet buttons.
         PrinterBox.Focus(FocusState.Programmatic);
@@ -820,15 +814,14 @@ public sealed partial class PrintDialog : ContentDialog
         UpdateCanPrint();
     }
 
+    /// <summary>Whether a job is being sent, file picker included.</summary>
+    public bool IsSending => _printing;
+
     /// <summary>
-    /// For a window that's closing once its printing is done: closes the dialog now if it isn't sending a job,
-    /// otherwise once the job has been sent or has failed, rather than cancelling it.
+    /// For a window that's closing once its printing is done: closes the dialog once the job has been sent or has
+    /// failed, rather than cancelling it.
     /// </summary>
-    public void CloseWhenDone()
-    {
-        _closeRequested = true;
-        if (!_printing) Hide();
-    }
+    public void CloseWhenDone() => _closeRequested = true;
 
     private void OnClosing(ContentDialog sender, ContentDialogClosingEventArgs args)
     {

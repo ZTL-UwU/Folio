@@ -94,7 +94,7 @@ public sealed partial class MainWindow : Window
     private bool _settingsOpen;
     /// <summary>Print dialogs (Folio's or Windows') that are open or still sending the document to the printer.</summary>
     private int _printing;
-    /// <summary>Folio's print dialog, while it's open.</summary>
+    /// <summary>Folio's print dialog, while it's open or waiting for its turn; there's one at a time.</summary>
     private PrintDialog? _printDialog;
     /// <summary>The window was closed while printing: it's out of sight, and closes once the job has been sent.</summary>
     private bool _closeWhenPrinted;
@@ -681,14 +681,16 @@ public sealed partial class MainWindow : Window
 
     /// <summary>
     /// Closing the window while a job is being sent would cut it off: the document goes, and with the last window
-    /// the process. So the window goes out of sight and closes once the job has been sent (see <see cref="EndPrinting"/>),
-    /// and Folio's print dialog closes now if it isn't sending anything.
+    /// the process. So the window goes out of sight and closes once the job has been sent (see <see cref="EndPrinting"/>).
+    /// Its dialogs close or are dropped now, except Folio's print dialog while it's sending, which closes when that's done.
     /// </summary>
     private void CloseWhenPrinted()
     {
         _closeWhenPrinted = true;
         if (App.LastActiveWindow == this) App.LastActiveWindow = null;
-        _printDialog?.CloseWhenDone();
+        var sending = _printDialog is { IsSending: true } dialog ? dialog : null;
+        sending?.CloseWhenDone();
+        if (Root.XamlRoot is { } root) Dialogs.WindowHidden(root, sending);
         AppWindow.Hide();
     }
 
@@ -1865,7 +1867,8 @@ public sealed partial class MainWindow : Window
 
     private async void OnPrint(object sender, RoutedEventArgs e)
     {
-        if (_document is null) return;
+        // One at a time: a second, asked for while the first waits for another window's dialog, would be dropped anyway.
+        if (_document is null || _printDialog is not null) return;
         var dialog = new PrintDialog(this, Root.XamlRoot, _document, DisplayName(_document), Viewer.CurrentPage);
         // The document stays as it is until the dialog closes, and through the Windows dialog it can hand over to.
         _printing++;

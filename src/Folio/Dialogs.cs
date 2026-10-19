@@ -31,6 +31,11 @@ internal static class Dialogs
     private static readonly List<ContentDialog> Waiting = [];
     /// <summary>Windows that have closed, whose dialogs still waiting are skipped.</summary>
     private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<XamlRoot, object> ClosedRoots = [];
+    /// <summary>
+    /// Windows out of sight until they close, whose dialogs are skipped and closed like a closed window's, except
+    /// the one each maps to (or none, when it maps to itself).
+    /// </summary>
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<XamlRoot, object> HiddenRoots = [];
 
     /// <summary>Raised when a dialog opens or closes, or starts or stops waiting for its turn.</summary>
     public static event EventHandler? QueueChanged;
@@ -56,6 +61,20 @@ internal static class Dialogs
     }
 
     /// <summary>
+    /// Treats the dialogs of a window that's going out of sight before it closes as <see cref="WindowClosed"/> does,
+    /// except <paramref name="keep"/>, which stays open until it closes itself. Otherwise one waiting would open
+    /// on the hidden window, where nobody could close it, and every dialog after it would wait forever.
+    /// </summary>
+    public static void WindowHidden(XamlRoot root, ContentDialog? keep)
+    {
+        HiddenRoots.AddOrUpdate(root, keep ?? (object)root);
+        if (_openDialog is { } open && open.XamlRoot == root && open != keep) open.Hide();
+    }
+
+    private static bool IsGone(XamlRoot root, ContentDialog dialog) =>
+        ClosedRoots.TryGetValue(root, out _) || HiddenRoots.TryGetValue(root, out var kept) && !ReferenceEquals(kept, dialog);
+
+    /// <summary>
     /// Shows <paramref name="dialog"/> once the dialogs before it have closed. WinUI shows one dialog at a time
     /// per UI thread, not per window, and every Folio window shares the one thread: ShowAsync throws for a second
     /// dialog in any window, which one asked for from code (a file opened from Explorer that needs a password, a
@@ -78,7 +97,7 @@ internal static class Dialogs
                 await previous;
                 Waiting.Remove(dialog);
             }
-            if (dialog.XamlRoot is not { } root || ClosedRoots.TryGetValue(root, out _)) return ContentDialogResult.None;
+            if (dialog.XamlRoot is not { } root || IsGone(root, dialog)) return ContentDialogResult.None;
             _openDialog = dialog;
             QueueChanged?.Invoke(null, EventArgs.Empty);
             // Subscribed after the dialog's own handlers, so it has the last word; see OnClosing.
@@ -101,7 +120,7 @@ internal static class Dialogs
     /// </summary>
     private static void OnClosing(ContentDialog dialog, ContentDialogClosingEventArgs args)
     {
-        if (dialog.XamlRoot is { } root && ClosedRoots.TryGetValue(root, out _)) args.Cancel = false;
+        if (dialog.XamlRoot is { } root && IsGone(root, dialog)) args.Cancel = false;
     }
 
     public static async Task ShowPropertiesAsync(XamlRoot root, PdfDocument document)
