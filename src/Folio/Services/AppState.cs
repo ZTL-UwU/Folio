@@ -235,7 +235,15 @@ public static class AppState
         try
         {
             if (File.Exists(StatePath))
-                return JsonSerializer.Deserialize(File.ReadAllText(StatePath), StateJsonContext.Default.StateFile) ?? new();
+            {
+                var state = JsonSerializer.Deserialize(File.ReadAllText(StatePath), StateJsonContext.Default.StateFile) ?? new();
+                // An explicit null (a file edited by hand) skips the defaults the properties start with.
+                state.Preferences ??= new();
+                state.Preferences.Print ??= new();
+                state.Recent = state.Recent?.Where(r => r is not null && !string.IsNullOrEmpty(r.Path)).ToList() ?? [];
+                foreach (var r in state.Recent) r.Title ??= "";
+                return state;
+            }
         }
         catch (Exception ex) when (ex is IOException or JsonException or UnauthorizedAccessException)
         {

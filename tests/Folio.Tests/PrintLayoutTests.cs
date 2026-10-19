@@ -150,7 +150,23 @@ public sealed class PrintLayoutTests
     {
         Assert.Equal([0, 0, 1, 1], PrintLayout.Sequence(2, 2, collate: false, twoSided: false));
         Assert.Equal([0, 1, 0, 1, 2, null, 2], PrintLayout.Sequence(3, 2, collate: false, twoSided: true));
-        Assert.Equal(4, PrintLayout.PaperCount(PrintLayout.Sequence(3, 2, collate: false, twoSided: true), twoSided: true));
+    }
+
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public void PaperCount_MatchesSequence(bool collate, bool twoSided)
+    {
+        for (int sheets = 1; sheets <= 5; sheets++)
+        {
+            for (int copies = 1; copies <= 3; copies++)
+            {
+                int sides = PrintLayout.Sequence(sheets, copies, collate, twoSided).Count;
+                Assert.Equal(twoSided ? (sides + 1) / 2 : sides, PrintLayout.PaperCount(sheets, copies, twoSided));
+            }
+        }
     }
 
     [Theory]

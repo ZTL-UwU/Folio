@@ -2119,14 +2119,23 @@ public sealed partial class DocumentView : UserControl
             InvalidatePage(p);
             AnnotationsChanged?.Invoke(this, p);
         }
-        if (openNote && pages.Count > 0)
+        if (!openNote) return;
+        // The note goes on the first highlight in view: a selection can start pages earlier (Ctrl+A), on pages that
+        // aren't laid out in single-page view.
+        var visible = VisibleContentRect();
+        int page = pages.FirstOrDefault(p =>
         {
-            int page = pages[0];
+            var area = _pageRects[p];
+            area.Intersect(visible);
+            return !area.IsEmpty;
+        }, -1);
+        if (page >= 0)
+        {
             var text = await GetTextAsync(page);
             var annotation = text?.Annotations.LastOrDefault(a => a.Kind == AnnotationKind.Highlight);
-            if (annotation is not null)
+            var r = _pageRects[page];
+            if (document == _document && annotation is not null && !r.IsEmpty)
             {
-                var r = _pageRects[page];
                 var p = RotatedLayoutPoint(page, new Point(annotation.Bounds.Left, annotation.Bounds.Bottom));
                 ShowAnnotationFlyout(annotation, new Point(r.X + p.X, r.Y + p.Y));
             }
@@ -2315,6 +2324,14 @@ public sealed partial class DocumentView : UserControl
 
     private static async Task LaunchUriAsync(string uri)
     {
-        if (LaunchPolicy.ParseExternalLink(uri) is { } parsed) await Launcher.LaunchUriAsync(parsed);
+        if (LaunchPolicy.ParseExternalLink(uri) is not { } parsed) return;
+        try
+        {
+            await Launcher.LaunchUriAsync(parsed);
+        }
+        catch (Exception ex) when (ex is System.Runtime.InteropServices.COMException or ArgumentException or UnauthorizedAccessException)
+        {
+            // Nothing to open it with, or Windows refused: the link just doesn't open.
+        }
     }
 }

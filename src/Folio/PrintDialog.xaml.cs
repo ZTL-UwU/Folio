@@ -518,8 +518,7 @@ public sealed partial class PrintDialog : ContentDialog
             return;
         }
         bool twoSided = TwoSidedChoice != TwoSided.Off;
-        var sequence = PrintLayout.Sequence(_sheets.Count, Copies, CollateBox.IsChecked == true, twoSided);
-        int paper = PrintLayout.PaperCount(sequence, twoSided);
+        int paper = PrintLayout.PaperCount(_sheets.Count, Copies, twoSided);
         Summary.Text = paper == 1 ? "1 sheet of paper" : $"{paper:N0} sheets of paper";
     }
 

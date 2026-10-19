@@ -154,7 +154,7 @@ public sealed unsafe partial class PdfDocument : IDisposable
                 {
                     2 => "The file could not be found or opened.",
                     3 => "The file is not a PDF document or it is damaged.",
-                    6 => "The document uses an unsupported security scheme.",
+                    5 => "The document uses an unsupported security scheme.",
                     _ => "The document could not be loaded.",
                 });
             }
