@@ -11,11 +11,12 @@
   IgnorableNamespaces="uap uap3 rescap com desktop2 desktop5">
 
   <!-- Name, Publisher and PublisherDisplayName are the ones Partner Center gives on the
-       Product identity page; the Store rejects a package with any other values. -->
+       Product identity page, and Properties/DisplayName is the reserved app name; the Store
+       rejects a package with any other values. The Start menu shows VisualElements/DisplayName. -->
   <Identity Name="TonyZhang.RectoPDF" Publisher="CN=251E6375-5B11-4604-B68D-3A05ED7E9F7B" Version="1.0.0.0" />
 
   <Properties>
-    <DisplayName>Recto</DisplayName>
+    <DisplayName>Recto PDF</DisplayName>
     <PublisherDisplayName>Tony Zhang</PublisherDisplayName>
     <Logo>Assets\Package\StoreLogo.png</Logo>
   </Properties>
