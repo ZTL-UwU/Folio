@@ -2184,7 +2184,21 @@ public sealed partial class MainWindow : Window
         e.Handled = true;
     }
 
-    private void OnClearRecent(object sender, RoutedEventArgs e) => AppState.ClearRecent();
+    private async void OnClearRecent(object sender, RoutedEventArgs e)
+    {
+        var dialog = Dialogs.Create(Root.XamlRoot);
+        dialog.Title = "Clear recent documents?";
+        dialog.Content = new TextBlock
+        {
+            Text = "All documents will be removed from the list. The files themselves won't be deleted.",
+            TextWrapping = TextWrapping.Wrap,
+            Width = 360,
+        };
+        dialog.PrimaryButtonText = "Clear";
+        dialog.CloseButtonText = "Cancel";
+        dialog.DefaultButton = ContentDialogButton.Close;
+        if (await Dialogs.ShowAsync(dialog) == ContentDialogResult.Primary) AppState.ClearRecent();
+    }
 
     // ================================================================ drag and drop
 
