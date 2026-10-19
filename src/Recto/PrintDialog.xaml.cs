@@ -573,13 +573,19 @@ public sealed partial class PrintDialog : ContentDialog
             ReleaseImages();
             return;
         }
-        double availableWidth = PreviewHost.ActualWidth, availableHeight = PreviewHost.ActualHeight;
+        // Leave room for the hairline around the paper, or it's clipped where the paper fills the space.
+        // Layout rounds each side to whole device pixels (a 1 DIP side is 2 pixels at 150%), so leave that much.
+        double scale = XamlRoot?.RasterizationScale ?? 1;
+        double Laid(double side) => Math.Round(side * scale, MidpointRounding.AwayFromZero) / scale;
+        var border = Sheet.BorderThickness;
+        double availableWidth = PreviewHost.ActualWidth - Laid(border.Left) - Laid(border.Right);
+        double availableHeight = PreviewHost.ActualHeight - Laid(border.Top) - Laid(border.Bottom);
         if (!_paperKnown || availableWidth <= 0 || availableHeight <= 0) return;
 
         int index = _sheetIndex;
         var sheet = _sheets[index];
         double k = Math.Min(availableWidth / sheet.Paper.Width, availableHeight / sheet.Paper.Height);
-        double pixels = k * (XamlRoot?.RasterizationScale ?? 1);
+        double pixels = k * scale;
         bool gray = Grayscale, annotations = AnnotationsBox.IsChecked == true;
 
         var key = (_sheets, pixels, gray, annotations);
