@@ -138,7 +138,6 @@ public sealed partial class PrintDialog : ContentDialog
             root.Changed -= OnRootChanged;
             ReleaseImages();
         };
-        root.Changed += OnRootChanged;
         SizeToWindow();
         Relayout();
     }
@@ -172,6 +171,11 @@ public sealed partial class PrintDialog : ContentDialog
 
     private async void OnOpened(ContentDialog sender, ContentDialogOpenedEventArgs args)
     {
+        // Followed by Closed, which unsubscribes. A dialog that never opens, because its window closed or already
+        // had one waiting, would otherwise stay subscribed and keep the window alive through _window.
+        XamlRoot.Changed += OnRootChanged;
+        // The window may have changed size while the dialog waited for its turn.
+        SizeToWindow();
         // Start on the printer list. Otherwise focus goes to the first control in the dialog, which is
         // one of the preview's sheet buttons.
         PrinterBox.Focus(FocusState.Programmatic);
