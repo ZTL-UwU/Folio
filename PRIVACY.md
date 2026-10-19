@@ -14,7 +14,7 @@ To work, Recto opens the documents you choose and keeps a little information abo
 
 Recto also writes temporary files:
 
-- **Attachments.** When you open a file attached to a PDF, Recto saves a copy in its temporary folder so it can be opened. The copy is deleted when you close the window it was opened from. If that fails, for example because another app still has the file open, Recto deletes it the next time it starts, once it's more than a day old.
+- **Attachments.** When you open a file attached to a PDF, Recto saves a copy in its temporary folder so it can be opened. A PDF attachment opens in a new Recto window, and its copy is deleted when you close that window. Copies of other attachments are deleted when you close the window you opened them from. If that fails, for example because another app still has the file open, Recto deletes it the next time it starts, once it's more than a day old.
 
 ## Your controls
 
@@ -27,7 +27,7 @@ Recto also writes temporary files:
 Only when you ask for it:
 
 - **Links.** Clicking a web link in a document opens it in your web browser. Clicking an email link opens your email app with the address, and any subject or message text the link includes.
-- **Attachments.** Opening an attachment hands it to the app Windows uses for that file type.
+- **Attachments.** Opening an attachment that isn't a PDF hands it to the app Windows uses for that file type. PDF attachments stay in Recto.
 - **Printing.** Printing sends the document to the printer you choose.
 - **Copying.** Text you copy goes to the Windows clipboard.
 - **Annotations.** Highlights and notes you add are signed with your Windows user name as their author, like in other PDF apps. When you save a copy of the document, the name is saved in it, and anyone you share the file with can see it.
