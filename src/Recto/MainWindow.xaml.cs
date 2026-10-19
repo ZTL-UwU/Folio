@@ -2287,6 +2287,7 @@ public sealed partial class MainWindow : Window
         Add(VirtualKey.Number0, Ctrl, () => Viewer.SetZoom(1), true);
         Add(VirtualKey.NumberPad0, Ctrl, () => Viewer.SetZoom(1), true);
         Add(VirtualKey.F9, None, () => { if (_document is not null) SetSidebarOpen(!_sidebarOpen); }, true);
+        Add(VirtualKey.B, Ctrl, () => { if (_document is not null) SetSidebarOpen(!_sidebarOpen); }, true);
         Add(VirtualKey.F11, None, () => { if (_presenting) SetPresenting(false); else SetFullscreen(!_fullscreen); }, true);
         Add(VirtualKey.F5, None, () => SetPresenting(!_presenting), true);
         Add(VirtualKey.Left, Ctrl, () => Viewer.Rotate(-90), false);

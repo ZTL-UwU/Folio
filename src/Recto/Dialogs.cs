@@ -216,7 +216,7 @@ internal static class Dialogs
                 ("Shift+Space / Space", "Previous / next screen, or page in single page and fit page"),
                 ("Left / Right", "Previous / next page, or scroll when the page is wider than the window"),
                 ("Home / End", "Beginning / end of document"),
-                ("F9", "Show or hide the sidebar"),
+                ("Ctrl+B / F9", "Show or hide the sidebar"),
             ]),
             ("Search and selection", [
                 ("Ctrl+F", "Search"), ("F3 / Enter", "Next result"), ("Shift+F3 / Shift+Enter", "Previous result"),
