@@ -2132,12 +2132,18 @@ public sealed partial class DocumentView : UserControl
         if (page >= 0)
         {
             var text = await GetTextAsync(page);
+            // Closed or replaced meanwhile: the page may not exist any more.
+            if (document != _document) return;
             var annotation = text?.Annotations.LastOrDefault(a => a.Kind == AnnotationKind.Highlight);
             var r = _pageRects[page];
-            if (document == _document && annotation is not null && !r.IsEmpty)
+            // Visible part of the page: the highlight's corner can be out of view, below the screen for a whole page's.
+            var area = r;
+            area.Intersect(VisibleContentRect());
+            if (annotation is not null && !area.IsEmpty)
             {
                 var p = RotatedLayoutPoint(page, new Point(annotation.Bounds.Left, annotation.Bounds.Bottom));
-                ShowAnnotationFlyout(annotation, new Point(r.X + p.X, r.Y + p.Y));
+                var at = new Point(Math.Clamp(r.X + p.X, area.Left, area.Right), Math.Clamp(r.Y + p.Y, area.Top, area.Bottom));
+                ShowAnnotationFlyout(annotation, at);
             }
         }
     }

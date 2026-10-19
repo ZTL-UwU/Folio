@@ -865,8 +865,10 @@ public sealed unsafe partial class PdfDocument : IDisposable
     {
         return PdfWorker.Run(() =>
         {
+            ObjectDisposedException.ThrowIf(_disposed, this);
             IntPtr a = Native.FPDFDoc_GetAttachment(_handle, attachment.Index);
-            if (a == IntPtr.Zero) return [];
+            // Not an empty file: the caller would write it out as the attachment.
+            if (a == IntPtr.Zero) throw new IOException("The attachment couldn't be found in the document.");
             uint size = 0;
             // Fails, leaving the size alone, when the embedded file's data can't be read.
             if (Native.FPDFAttachment_GetFile(a, null, 0, &size) == 0) throw new IOException("The attachment couldn't be read from the document.");

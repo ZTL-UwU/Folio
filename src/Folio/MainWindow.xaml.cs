@@ -455,6 +455,7 @@ public sealed partial class MainWindow : Window
         ClearThumbnails();
         OutlineTree.RootNodes.Clear();
         AttachmentList.ItemsSource = null;
+        if (Notification.IsOpen && Notification.Title == BlockedAttachmentTitle) Notification.IsOpen = false;
         _annotationItems.Clear();
         ShowCurrentView();
         UpdateChrome();
@@ -1407,6 +1408,7 @@ public sealed partial class MainWindow : Window
     }
 
     private const string BlockedAttachmentTitle = "Folio won't open this attachment";
+    private const string AttachmentDocumentChanged = "The document was reloaded or closed meanwhile. Try again from its attachments.";
 
     private async void OpenAttachment(AttachmentItem item)
     {
@@ -1431,6 +1433,11 @@ public sealed partial class MainWindow : Window
             return;
         }
         if (risk == AttachmentRisk.Ask && !await ConfirmOpenAttachmentAsync(name)) return;
+        if (document != _document)
+        {
+            ShowMessage("Unable to open attachment", AttachmentDocumentChanged, InfoBarSeverity.Warning);
+            return;
+        }
         try
         {
             var data = await document.GetAttachmentDataAsync(item.Attachment);
@@ -1497,6 +1504,11 @@ public sealed partial class MainWindow : Window
         picker.FileTypeChoices.Add(string.IsNullOrEmpty(ext) ? "File" : ext.TrimStart('.').ToUpperInvariant() + " file", [string.IsNullOrEmpty(ext) ? "." : ext]);
         var result = await picker.PickSaveFileAsync();
         if (result is null) return;
+        if (document != _document)
+        {
+            ShowMessage("Unable to save attachment", AttachmentDocumentChanged, InfoBarSeverity.Warning);
+            return;
+        }
         try
         {
             await File.WriteAllBytesAsync(result.Path, await document.GetAttachmentDataAsync(item.Attachment));
