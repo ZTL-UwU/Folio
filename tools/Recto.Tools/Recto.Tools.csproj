@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Developer tools: the viewer benchmark and the app icon build. See docs/tools.md. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0-windows10.0.26100.0</TargetFramework>
+    <RootNamespace>Recto.Tools</RootNamespace>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- The thumbnail benchmark puts its pdfium.dll next to Recto's thumbnail handler, for this process's architecture. The same version as src/Recto. -->
+    <PackageReference Include="bblanchon.PDFium.Win32" Version="156.0.8076" />
+  </ItemGroup>
+</Project>

@@ -1,6 +1,6 @@
 # Third-party notices
 
-Folio ships with the components below. The build copies this file and the license texts into the `licenses` folder next to `Folio.exe`, so they go out with every build.
+Recto ships with the components below. The build copies this file and the license texts into the `licenses` folder next to `Recto.exe`, so they go out with every build.
 
 ## PDFium
 
@@ -29,12 +29,12 @@ When PDFium is updated, take the `licenses` folder from the pdfium-binaries rele
 
 ## .NET
 
-- The .NET 10 runtime, compiled into `Folio.exe` and the File Explorer thumbnail handler with Native AOT.
+- The .NET 10 runtime, compiled into `Recto.exe` and the File Explorer thumbnail handler with Native AOT.
 - License: MIT, plus the third-party notices of the libraries the runtime includes. The build copies both from the .NET runtime pack it used to `licenses/dotnet-LICENSE.txt` and `licenses/dotnet-THIRD-PARTY-NOTICES.txt`.
 
 ## Windows SDK projection (C#/WinRT)
 
-- Package: `Microsoft.Windows.SDK.NET.Ref` 10.0.26100.87, the .NET projection of the Windows APIs with the C#/WinRT runtime (`WinRT.Runtime`), compiled into `Folio.exe`.
+- Package: `Microsoft.Windows.SDK.NET.Ref` 10.0.26100.87, the .NET projection of the Windows APIs with the C#/WinRT runtime (`WinRT.Runtime`), compiled into `Recto.exe`.
 - License: the Windows SDK license terms, <https://aka.ms/WinSDKLicenseURL>. C#/WinRT itself is MIT (<https://github.com/microsoft/CsWinRT>).
 
 ## Windows App SDK
