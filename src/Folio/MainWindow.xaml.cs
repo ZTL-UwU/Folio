@@ -94,6 +94,12 @@ public sealed partial class MainWindow : Window
     private bool _settingsOpen;
     /// <summary>Print dialogs (Folio's or Windows') that are open or still sending the document to the printer.</summary>
     private int _printing;
+    /// <summary>Folio's print dialog, while it's open or waiting for its turn; there's one at a time.</summary>
+    private PrintDialog? _printDialog;
+    /// <summary>The window was closed while printing: it's out of sight, and closes once the job has been sent.</summary>
+    private bool _closeWhenPrinted;
+    /// <summary>Documents closed or replaced while printing, which the job may still be reading; released once it's done.</summary>
+    private readonly List<PdfDocument> _releaseWhenPrinted = [];
     /// <summary>The file changed on disk while Settings or a print dialog was open; checked again when they close.</summary>
     private bool _reloadPending;
     /// <summary>Automatic reloads put off because another app still had the file open, likely still writing it.</summary>
@@ -342,15 +348,15 @@ public sealed partial class MainWindow : Window
     }
 
     /// <summary>Whether this window shows the file at <paramref name="path"/> (a full path).</summary>
-    internal bool IsShowing(string path) => _document is not null && SamePath(path, _document.FilePath);
+    internal bool IsShowing(string path) => !_closeWhenPrinted && _document is not null && SamePath(path, _document.FilePath);
 
     /// <summary>Whether this window is opening the file at <paramref name="path"/>, so it'll show it soon.</summary>
-    internal bool IsOpening(string path) => _openingPaths.Any(p => SamePath(path, p));
+    internal bool IsOpening(string path) => !_closeWhenPrinted && _openingPaths.Any(p => SamePath(path, p));
 
     private static bool SamePath(string a, string b) => string.Equals(Path.GetFullPath(a), Path.GetFullPath(b), StringComparison.OrdinalIgnoreCase);
 
     /// <summary>On the start page and not about to open anything, so it can take a document opened from outside.</summary>
-    internal bool IsIdle => _document is null && _opening == 0;
+    internal bool IsIdle => !_closeWhenPrinted && _document is null && _opening == 0;
 
     internal void BringToFront()
     {
@@ -403,7 +409,7 @@ public sealed partial class MainWindow : Window
         Root.UpdateLayout();
 
         Viewer.SetDocument(document, existing);
-        previous?.Dispose();
+        if (previous is not null) ReleaseDocument(previous);
 
         UpdateChrome();
         UpdateTitle();
@@ -443,7 +449,7 @@ public sealed partial class MainWindow : Window
         _password = null;
         _entry = null;
         Viewer.SetDocument(null);
-        document.Dispose();
+        ReleaseDocument(document);
         ClearThumbnails();
         OutlineTree.RootNodes.Clear();
         AttachmentList.ItemsSource = null;
@@ -589,6 +595,8 @@ public sealed partial class MainWindow : Window
             };
             _watcher.Changed += (_, _) => DispatcherQueue.TryEnqueue(Changed);
             _watcher.Renamed += (_, _) => DispatcherQueue.TryEnqueue(Changed);
+            // A file deleted and replaced by one moved in from another folder raises only Created.
+            _watcher.Created += (_, _) => DispatcherQueue.TryEnqueue(Changed);
         }
         catch (Exception ex) when (ex is IOException or ArgumentException or UnauthorizedAccessException)
         {
@@ -648,6 +656,11 @@ public sealed partial class MainWindow : Window
         }
         SaveWindowState();
         PersistPosition();
+        if (_printing > 0)
+        {
+            args.Cancel = true;
+            CloseWhenPrinted();
+        }
     }
 
     /// <summary>Closes the window, offering to save unsaved annotations first.</summary>
@@ -657,8 +670,47 @@ public sealed partial class MainWindow : Window
         // Close() skips OnAppWindowClosing, so remember the window and position now.
         SaveWindowState();
         PersistPosition();
+        if (_printing > 0)
+        {
+            CloseWhenPrinted();
+            return;
+        }
         _forceClose = true;
         Close();
+    }
+
+    /// <summary>
+    /// Closing the window while a job is being sent would cut it off: the document goes, and with the last window
+    /// the process. So the window goes out of sight and closes once the job has been sent (see <see cref="EndPrinting"/>).
+    /// Its dialogs close or are dropped now, except Folio's print dialog while it's sending, which closes when that's done.
+    /// </summary>
+    private void CloseWhenPrinted()
+    {
+        _closeWhenPrinted = true;
+        if (App.LastActiveWindow == this) App.LastActiveWindow = null;
+        var sending = _printDialog is { IsSending: true } dialog ? dialog : null;
+        sending?.CloseWhenDone();
+        if (Root.XamlRoot is { } root) Dialogs.WindowHidden(root, sending);
+        AppWindow.Hide();
+    }
+
+    /// <summary>Closes a document that's no longer shown, once no print job can be reading it.</summary>
+    private void ReleaseDocument(PdfDocument document)
+    {
+        if (_printing > 0) _releaseWhenPrinted.Add(document);
+        else document.Dispose();
+    }
+
+    /// <summary>Ends a print counted in <see cref="_printing"/>. False if the window was waiting for it to close, and now has.</summary>
+    private bool EndPrinting()
+    {
+        if (--_printing > 0) return true;
+        foreach (var document in _releaseWhenPrinted) document.Dispose();
+        _releaseWhenPrinted.Clear();
+        if (!_closeWhenPrinted) return true;
+        _forceClose = true;
+        Close();
+        return false;
     }
 
     private void OnActivated(object sender, WindowActivatedEventArgs e)
@@ -706,6 +758,8 @@ public sealed partial class MainWindow : Window
         _document?.Dispose();
         _document = null;
         _password = null;
+        foreach (var document in _releaseWhenPrinted) document.Dispose();
+        _releaseWhenPrinted.Clear();
         PrintService.Release(this);
         foreach (var dir in _attachmentFolders) AttachmentFiles.Delete(dir);
         _attachmentFolders.Clear();
@@ -1813,18 +1867,23 @@ public sealed partial class MainWindow : Window
 
     private async void OnPrint(object sender, RoutedEventArgs e)
     {
-        if (_document is null) return;
+        // One at a time: a second, asked for while the first waits for another window's dialog, would be dropped anyway.
+        if (_document is null || _printDialog is not null) return;
         var dialog = new PrintDialog(this, Root.XamlRoot, _document, DisplayName(_document), Viewer.CurrentPage);
         // The document stays as it is until the dialog closes, and through the Windows dialog it can hand over to.
         _printing++;
+        _printDialog = dialog;
+        bool open;
         try
         {
             await Dialogs.ShowAsync(dialog);
         }
         finally
         {
-            _printing--;
+            _printDialog = null;
+            open = EndPrinting();
         }
+        if (!open) return;
         if (dialog.UseSystemDialog)
         {
             await PrintWithSystemDialogAsync();
@@ -1840,10 +1899,14 @@ public sealed partial class MainWindow : Window
         if (_document is null) return;
         // The document stays as it is until the job has been sent: the dialog renders its pages until then.
         _printing++;
+        bool open;
         try
         {
             await PrintService.PrintAsync(this, _document, DisplayName(_document),
-                message => DispatcherQueue.TryEnqueue(() => ShowMessage("Printing problem", message, InfoBarSeverity.Warning)));
+                message => DispatcherQueue.TryEnqueue(() =>
+                {
+                    if (!_closed) ShowMessage("Printing problem", message, InfoBarSeverity.Warning);
+                }));
         }
         catch (Exception ex)
         {
@@ -1851,8 +1914,9 @@ public sealed partial class MainWindow : Window
         }
         finally
         {
-            _printing--;
+            open = EndPrinting();
         }
+        if (!open) return;
         CheckPendingReload();
     }
 

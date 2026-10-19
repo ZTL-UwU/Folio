@@ -24,7 +24,7 @@ public static class LaunchPolicy
     {
         ".ade", ".adp", ".app", ".appcontent-ms", ".appinstaller", ".application", ".appref-ms", ".appx", ".appxbundle", ".asp", ".aspx", ".asx",
         ".bas", ".bat", ".bgi", ".cab", ".cer", ".chm", ".cmd", ".cnt", ".com", ".cpl", ".crt", ".csh", ".der",
-        ".desktopthemepackfile", ".diagcab", ".diagcfg", ".diagpkg", ".dll", ".exe", ".fxp", ".gadget", ".grp", ".hlp", ".hpj",
+        ".deskthemepack", ".desktopthemepackfile", ".diagcab", ".diagcfg", ".diagpkg", ".dll", ".exe", ".fxp", ".gadget", ".grp", ".hlp", ".hpj",
         ".hta", ".htc", ".img", ".inf", ".ins", ".iqy", ".iso", ".isp", ".its", ".jar", ".jnlp", ".js", ".jse", ".ksh", ".library-ms",
         ".lnk", ".mad", ".maf", ".mag", ".mam", ".maq", ".mar", ".mas", ".mat", ".mau", ".mav", ".maw", ".mcf", ".mda",
         ".mdb", ".mde", ".mdt", ".mdw", ".mdz", ".msc", ".msh", ".msh1", ".msh1xml", ".msh2", ".msh2xml", ".mshxml", ".msi",
@@ -40,7 +40,7 @@ public static class LaunchPolicy
     // themes). Those can reach out to a remote host, so they're never saved under their own name.
     private static readonly HashSet<string> ShellReadExtensions = new(StringComparer.OrdinalIgnoreCase)
     {
-        ".desktopthemepackfile", ".library-ms", ".lnk", ".scf", ".search-ms", ".searchconnector-ms", ".theme", ".themepack",
+        ".deskthemepack", ".desktopthemepackfile", ".library-ms", ".lnk", ".scf", ".search-ms", ".searchconnector-ms", ".theme", ".themepack",
         ".url", ".website",
     };
 
