@@ -25,4 +25,4 @@ Measured with the [benchmark tool](docs/tools.md#benchmark). It's not a rigorous
 
 ## License
 
-[MIT License](LICENSE) · [Third-party notices](THIRD-PARTY-NOTICES.md)
+[MIT License](LICENSE) · [Third-party notices](THIRD-PARTY-NOTICES.md) · [Privacy policy](PRIVACY.md)
