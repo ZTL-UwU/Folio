@@ -164,7 +164,8 @@ internal static class PrintService
         bool rotate = (size.Width > size.Height) != (imageable.Width > imageable.Height);
         double w = rotate ? size.Height : size.Width, h = rotate ? size.Width : size.Height;
         double fit = Math.Min(imageable.Width / (w * 96 / 72), imageable.Height / (h * 96 / 72));
-        double scale = Math.Min(dpi / 72 * Math.Min(1, fit), Math.Sqrt(MaxPagePixels / (w * h)));
+        // Render at the size it's printed, so pages smaller than the paper aren't stretched up from a low resolution.
+        double scale = Math.Min(dpi / 72 * fit, Math.Sqrt(MaxPagePixels / (w * h)));
         var region = new RectInt32(0, 0, Math.Max(1, (int)(w * scale)), Math.Max(1, (int)(h * scale)));
         // As it prints, the way Folio's own dialog renders it: annotations marked print-only shown and
         // screen-only ones left out, and grey when black and white is picked.

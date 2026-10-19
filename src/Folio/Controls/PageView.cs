@@ -378,7 +378,9 @@ internal sealed partial class PageView : Canvas
         }
         catch (COMException)
         {
-            // The upload failed; the page keeps the bitmap it had, and the next change of scale tries again.
+            // The upload failed; the page keeps the bitmap it had, and the next change of scale tries again. Without
+            // one it would stay blank until then, so the next Render (on scrolling) tries again at this scale.
+            if (_baseCts == cts && _base.Source is null) _baseScale = 0;
         }
     }
 

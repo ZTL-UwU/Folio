@@ -45,7 +45,7 @@ internal static partial class PrintJob
             // Laid out again for the paper the printer actually reports, which the preview could only ask about.
             var sheets = PrintLayout.Layout(request.Pages, document.PageSizes, paper, request.Layout);
             var sequence = PrintLayout.Sequence(sheets.Count, request.Copies, request.Collate, request.TwoSided);
-            int paperTotal = PrintLayout.PaperCount(sequence, request.TwoSided);
+            int paperTotal = PrintLayout.PaperCount(sheets.Count, request.Copies, request.TwoSided);
 
             await Task.Run(() => StartDoc(dc, request), token).ConfigureAwait(false);
             started = true;

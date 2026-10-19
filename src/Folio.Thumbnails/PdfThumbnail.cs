@@ -5,13 +5,18 @@ namespace Folio.Thumbnails;
 /// <summary>Renders the first page of a PDF into a bitmap for File Explorer.</summary>
 internal static unsafe class PdfThumbnail
 {
+    private const int MaxSize = 2560;
+
     /// <summary>
-    /// Renders page 1 so its longer side is <paramref name="size"/> pixels. Returns a top-down 32-bit
+    /// Renders page 1 so its longer side is <paramref name="size"/> pixels, up to 2560. Returns a top-down 32-bit
     /// premultiplied ARGB HBITMAP owned by the caller, or 0 if the stream isn't a PDF that opens without a password.
     /// </summary>
     public static nint Render(IStream stream, int size)
     {
         if (size <= 0) return 0;
+        // Explorer's largest thumbnails are 2560 pixels; a caller asking for more gets those, scaled up as it sees fit,
+        // rather than gigabytes of bitmap in the host process.
+        size = Math.Min(size, MaxSize);
         ulong length;
         if (stream.Seek(0, Win32.STREAM_SEEK_END, &length) < 0 || length == 0 || length > uint.MaxValue) return 0;
 

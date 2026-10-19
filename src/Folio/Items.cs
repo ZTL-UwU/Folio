@@ -109,8 +109,10 @@ public sealed class AnnotationItem(PdfAnnotation annotation, string pageLabel)
     }.Where(s => s is not null));
 }
 
-public sealed class AttachmentItem(PdfAttachment attachment)
+public sealed class AttachmentItem(PdfDocument document, PdfAttachment attachment)
 {
+    /// <summary>The document it's attached to: its index only means something there.</summary>
+    public PdfDocument Document { get; } = document;
     public PdfAttachment Attachment { get; } = attachment;
     public string Name => Attachment.Name;
     public string Size => FormatSize(Attachment.Size);

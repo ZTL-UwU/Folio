@@ -384,6 +384,8 @@ public sealed partial class MainWindow : Window
         PersistPosition();
         CancelSearch(clearText: !reloading);
         _annotationScanCts?.Cancel();
+        // Its Save as… button is for an attachment of the document being replaced.
+        if (Notification.IsOpen && Notification.Title == BlockedAttachmentTitle) Notification.IsOpen = false;
 
         _document = document;
         _password = password;
@@ -453,6 +455,7 @@ public sealed partial class MainWindow : Window
         ClearThumbnails();
         OutlineTree.RootNodes.Clear();
         AttachmentList.ItemsSource = null;
+        if (Notification.IsOpen && Notification.Title == BlockedAttachmentTitle) Notification.IsOpen = false;
         _annotationItems.Clear();
         ShowCurrentView();
         UpdateChrome();
@@ -528,8 +531,10 @@ public sealed partial class MainWindow : Window
             return;
         }
         if (Notification.IsOpen && Notification.Title == ReloadFailedTitle) Notification.IsOpen = false;
+        // Showing the document cancels the search, query included.
+        string query = _searchQuery;
         ShowDocument(document, password, reloading: true);
-        if (!string.IsNullOrEmpty(_searchQuery)) StartSearch(_searchQuery);
+        if (!string.IsNullOrEmpty(query)) StartSearch(query);
     }
 
     /// <summary>
@@ -827,7 +832,7 @@ public sealed partial class MainWindow : Window
         PdfDocument? document = null;
         string? password = null;
         System.Runtime.ExceptionServices.ExceptionDispatchInfo? failure = null;
-        bool checking = false;
+        bool checking = false, dismissed = false;
         // Whether the dialog can close: unlocked, or failed for a reason other than the password.
         async Task<bool> TryUnlockAsync()
         {
@@ -836,7 +841,10 @@ public sealed partial class MainWindow : Window
             try
             {
                 password = box.Password;
-                document = await PdfDocument.OpenAsync(path, password);
+                var opened = await PdfDocument.OpenAsync(path, password);
+                // The window closed while it opened, taking the dialog with it: nothing will show it.
+                if (dismissed) opened.Dispose();
+                else document = opened;
                 return true;
             }
             catch (PdfPasswordException)
@@ -880,6 +888,7 @@ public sealed partial class MainWindow : Window
         dialog.Closing += (_, e) => e.Cancel |= checking && !_closed;
         dialog.Opened += (_, _) => box.Focus(FocusState.Programmatic);
         await Dialogs.ShowAsync(dialog);
+        dismissed = true;
         failure?.Throw();
         return document is null ? (null, null) : (document, password);
     }
@@ -1369,7 +1378,7 @@ public sealed partial class MainWindow : Window
         {
             var attachments = await document.GetAttachmentsAsync();
             if (document != _document) return;
-            AttachmentList.ItemsSource = attachments.Select(a => new AttachmentItem(a)).ToList();
+            AttachmentList.ItemsSource = attachments.Select(a => new AttachmentItem(document, a)).ToList();
             _hasAttachments = attachments.Count > 0;
             AttachmentsTab.Visibility = _hasAttachments ? Visibility.Visible : Visibility.Collapsed;
             if (_hasAttachments && AppState.Preferences.SidebarPage == 3) SelectSidebarTab(3);
@@ -1398,10 +1407,13 @@ public sealed partial class MainWindow : Window
         e.Handled = true;
     }
 
+    private const string BlockedAttachmentTitle = "Folio won't open this attachment";
+    private const string AttachmentDocumentChanged = "The document was reloaded or closed meanwhile. Try again from its attachments.";
+
     private async void OpenAttachment(AttachmentItem item)
     {
-        if (_document is null) return;
-        var document = _document;
+        if (item.Document != _document) return;
+        var document = item.Document;
         string name = LaunchPolicy.SafeFileName(item.Name);
         var risk = LaunchPolicy.Classify(name);
         if (risk == AttachmentRisk.Blocked)
@@ -1413,7 +1425,7 @@ public sealed partial class MainWindow : Window
                 SaveAttachment(item);
             };
             string saveName = LaunchPolicy.SaveFileName(name);
-            ShowMessage("Folio won't open this attachment",
+            ShowMessage(BlockedAttachmentTitle,
                 saveName == name
                     ? $"“{name}” is a program, script or shortcut that could harm your computer. You can save it and check it before opening it."
                     : $"“{name}” is a shortcut that could harm your computer, even unopened. It can be saved as “{saveName}” so Windows ignores it.",
@@ -1421,6 +1433,11 @@ public sealed partial class MainWindow : Window
             return;
         }
         if (risk == AttachmentRisk.Ask && !await ConfirmOpenAttachmentAsync(name)) return;
+        if (document != _document)
+        {
+            ShowMessage("Unable to open attachment", AttachmentDocumentChanged, InfoBarSeverity.Warning);
+            return;
+        }
         try
         {
             var data = await document.GetAttachmentDataAsync(item.Attachment);
@@ -1474,8 +1491,9 @@ public sealed partial class MainWindow : Window
 
     private async void SaveAttachment(AttachmentItem item)
     {
-        if (_document is null) return;
-        var document = _document;
+        // From a document no longer shown (a reload or another file replaced it): its index could name another attachment.
+        if (item.Document != _document) return;
+        var document = item.Document;
         string name = LaunchPolicy.SaveFileName(LaunchPolicy.SafeFileName(item.Name));
         var picker = new FileSavePicker(AppWindow.Id)
         {
@@ -1486,6 +1504,11 @@ public sealed partial class MainWindow : Window
         picker.FileTypeChoices.Add(string.IsNullOrEmpty(ext) ? "File" : ext.TrimStart('.').ToUpperInvariant() + " file", [string.IsNullOrEmpty(ext) ? "." : ext]);
         var result = await picker.PickSaveFileAsync();
         if (result is null) return;
+        if (document != _document)
+        {
+            ShowMessage("Unable to save attachment", AttachmentDocumentChanged, InfoBarSeverity.Warning);
+            return;
+        }
         try
         {
             await File.WriteAllBytesAsync(result.Path, await document.GetAttachmentDataAsync(item.Attachment));
@@ -1832,7 +1855,13 @@ public sealed partial class MainWindow : Window
         if (folder is not null && Directory.Exists(folder) && !IsTemporaryFolder(folder)) picker.SuggestedFolder = folder;
         picker.FileTypeChoices.Add("PDF document", [".pdf"]);
         var result = await picker.PickSaveFileAsync();
-        if (result is null || _document != document) return false;
+        if (result is null) return false;
+        if (_document != document)
+        {
+            // Reloaded or replaced while the picker was open: the edits that were to be saved are gone.
+            ShowMessage("Unable to save", "The document changed while you chose where to save it. Nothing was saved.", InfoBarSeverity.Warning);
+            return false;
+        }
         bool replacing = string.Equals(Path.GetFullPath(result.Path), Path.GetFullPath(document.FilePath), StringComparison.OrdinalIgnoreCase);
         try
         {

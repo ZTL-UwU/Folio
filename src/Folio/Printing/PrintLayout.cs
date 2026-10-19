@@ -271,8 +271,12 @@ public static class PrintLayout
         return sequence;
     }
 
-    /// <summary>Sheets of paper used to print <paramref name="sequence"/>.</summary>
-    public static int PaperCount(IReadOnlyCollection<int?> sequence, bool twoSided) => twoSided ? (sequence.Count + 1) / 2 : sequence.Count;
+    /// <summary>
+    /// Sheets of paper the <see cref="Sequence"/> for these settings uses, without building it: every copy starts on
+    /// a new sheet of paper, collated or not.
+    /// </summary>
+    public static int PaperCount(int sheetCount, int copies, bool twoSided) =>
+        Math.Max(1, copies) * (twoSided ? (sheetCount + 1) / 2 : sheetCount);
 
     /// <summary>
     /// Whether the printer can make the copies itself, so the document is sent once rather than once
