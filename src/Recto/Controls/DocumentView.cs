@@ -2414,9 +2414,15 @@ public sealed partial class DocumentView : UserControl
         await _historyTurn.WaitAsync();
         try
         {
-            // A note still open is written first, so its text is what's taken back. Its flyout closes, as it
-            // would show text the document no longer has.
+            // Text typed into a note that's still open is the latest edit. Undo writes it first, so it's what's
+            // taken back. Redo has nothing to make again after it, just as writing it would drop the steps that
+            // could be redone; the note stays open with its text.
+            bool drafting = _noteEdits.Any(e => e.IsChanged);
+            if (undo ? _undo.Count == 0 && !drafting : _redo.Count == 0 || drafting) return;
             await CommitPendingEditsAsync();
+            // A draft that couldn't be written stays in its flyout, to be written when it closes.
+            if (_noteEdits.Any(e => e.IsChanged)) return;
+            // The flyouts close, as they would show text the document no longer has.
             foreach (var edit in _noteEdits.ToList())
             {
                 _noteEdits.Remove(edit);
