@@ -2197,8 +2197,15 @@ public sealed partial class DocumentView : UserControl
             return;
         }
         if (document != _document) return;
-        // A kind that can't be put back, such as a stamp, stays out of the history: its deletion can't be undone.
         if (removed is not null) Record(new PresenceChange(annotation, added: false, removed));
+        else
+        {
+            // A kind that can't be put back, such as a stamp: its deletion can't be undone, so Ctrl+Z doesn't take
+            // back an older change instead, as if it were this one.
+            _undo.Clear();
+            _redo.Clear();
+            _historyVersion++;
+        }
         InvalidatePage(annotation.PageIndex);
         AnnotationsChanged?.Invoke(this, annotation.PageIndex);
     }
@@ -2267,11 +2274,13 @@ public sealed partial class DocumentView : UserControl
         var edit = new NoteEdit(document, annotation, box, flyout);
         box.TextChanged += (_, _) => NoteTextVersion++;
         _noteEdits.Add(edit);
-        delete.Click += (_, _) =>
+        delete.Click += async (_, _) =>
         {
             _noteEdits.Remove(edit);
             flyout.Hide();
-            DeleteAnnotation(annotation);
+            // The text typed into the note is written first, so undoing the deletion puts it back with the note.
+            await CommitNoteAsync(edit);
+            if (edit.Document == _document) DeleteAnnotation(annotation);
         };
         flyout.Opened += (_, _) => box.Focus(FocusState.Programmatic);
         flyout.Closed += async (_, _) =>

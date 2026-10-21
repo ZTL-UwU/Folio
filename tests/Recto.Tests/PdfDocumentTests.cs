@@ -299,6 +299,25 @@ public sealed class PdfDocumentTests : IDisposable
     }
 
     [Fact]
+    public async Task RestoredNoteFromAnotherProgram_IsFoundAfterItsAppearanceIsDrawn()
+    {
+        string path = _temp.Write("doc.pdf", TestPdf.Create(annots: ["<< /Type /Annot /Subtype /Text /Rect [50 50 90 100] /AP << /N {appearance} >> /Contents (theirs) /NM (their-note) >>"]));
+        using var document = await PdfDocument.OpenAsync(path);
+        var note = Assert.Single(await document.GetAllAnnotationsAsync(CancellationToken.None));
+
+        var removed = await document.RemoveAnnotationAsync(note);
+        Assert.NotNull(removed);
+        var restored = await document.RestoreAnnotationAsync(removed);
+        // The note put back has no appearance stream. PDFium draws one when the page loads again, as it does after
+        // another deletion on it, and resizes the note's /Rect to fit.
+        await document.RemoveAnnotationAsync(await document.AddNoteAsync(0, new Point(150, 10), Yellow, ""));
+        Assert.NotEqual(restored.Bounds, Assert.Single(await document.GetAllAnnotationsAsync(CancellationToken.None)).Bounds);
+
+        Assert.NotNull(await document.RemoveAnnotationAsync(restored));
+        Assert.Empty(await document.GetAllAnnotationsAsync(CancellationToken.None));
+    }
+
+    [Fact]
     public async Task SettingContents_ReturnsTheTextItReplaced()
     {
         string path = _temp.Write("doc.pdf", TestPdf.Create());

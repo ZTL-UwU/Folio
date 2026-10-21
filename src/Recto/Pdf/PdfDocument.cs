@@ -673,8 +673,11 @@ public sealed unsafe partial class PdfDocument : IDisposable
         if (Native.FPDFAnnot_GetRect(annot, &r) == 0) return false;
         Rect current = UserRect(r), recorded = annotation.UserRect;
         const double Tolerance = 0.01;
-        return Math.Abs(current.X - recorded.X) < Tolerance && Math.Abs(current.Y - recorded.Y) < Tolerance
-            && Math.Abs(current.Width - recorded.Width) < Tolerance && Math.Abs(current.Height - recorded.Height) < Tolerance
+        // PDFium resizes a note when it draws its appearance, as it does for one put back by undo, and keeps its
+        // bottom-left corner.
+        bool sized = annotation.Subtype == Native.FPDF_ANNOT_TEXT
+            || Math.Abs(current.Width - recorded.Width) < Tolerance && Math.Abs(current.Height - recorded.Height) < Tolerance;
+        return Math.Abs(current.X - recorded.X) < Tolerance && Math.Abs(current.Y - recorded.Y) < Tolerance && sized
             && GetAnnotString(annot, KeyName) == annotation.Name;
     }
 
