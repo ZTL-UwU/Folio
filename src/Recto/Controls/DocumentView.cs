@@ -2264,7 +2264,7 @@ public sealed partial class DocumentView : UserControl
             },
         };
         if (string.IsNullOrEmpty(header.Text)) header.Visibility = Visibility.Collapsed;
-        var edit = new NoteEdit(document, annotation, box);
+        var edit = new NoteEdit(document, annotation, box, flyout);
         box.TextChanged += (_, _) => NoteTextVersion++;
         _noteEdits.Add(edit);
         delete.Click += (_, _) =>
@@ -2283,10 +2283,11 @@ public sealed partial class DocumentView : UserControl
     }
 
     /// <summary>The text box of an open note flyout, whose text is written to the document when the flyout closes.</summary>
-    private sealed class NoteEdit(PdfDocument document, PdfAnnotation annotation, TextBox box)
+    private sealed class NoteEdit(PdfDocument document, PdfAnnotation annotation, TextBox box, Flyout flyout)
     {
         public PdfDocument Document { get; } = document;
         public PdfAnnotation Annotation { get; } = annotation;
+        public Flyout Flyout { get; } = flyout;
         public string Text => box.Text;
         /// <summary>The contents last written to the document.</summary>
         public string Saved { get; set; } = annotation.Contents;
@@ -2413,8 +2414,14 @@ public sealed partial class DocumentView : UserControl
         await _historyTurn.WaitAsync();
         try
         {
-            // A note still open is written first, so its text is what's taken back.
+            // A note still open is written first, so its text is what's taken back. Its flyout closes, as it
+            // would show text the document no longer has.
             await CommitPendingEditsAsync();
+            foreach (var edit in _noteEdits.ToList())
+            {
+                _noteEdits.Remove(edit);
+                edit.Flyout.Hide();
+            }
             var (from, to) = undo ? (_undo, _redo) : (_redo, _undo);
             if (document != _document || !from.TryPop(out var step)) return;
             int version = _historyVersion;
@@ -2426,8 +2433,9 @@ public sealed partial class DocumentView : UserControl
                     pages.Add(change.Annotation.PageIndex);
                     await (undo ? change.UndoAsync(document) : change.RedoAsync(document));
                 }
-                // An edit made meanwhile drops what could be redone, this too.
-                if (!undo || version == _historyVersion) to.Push(step);
+                // The document closed or reloaded meanwhile: its history is gone. An edit made meanwhile drops
+                // what could be redone, this too.
+                if (document == _document && (!undo || version == _historyVersion)) to.Push(step);
             }
             catch (Exception ex) when (IsEditFailure(ex))
             {

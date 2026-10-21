@@ -802,7 +802,10 @@ public sealed unsafe partial class PdfDocument : IDisposable
         }
     }
 
-    /// <summary>Puts back an annotation removed by <see cref="RemoveAnnotationAsync"/>, on top of the others on its page.</summary>
+    /// <summary>
+    /// Puts back an annotation removed by <see cref="RemoveAnnotationAsync"/>, on top of the others on its page:
+    /// PDFium only appends to /Annots, and has no way to move an annotation back to where it was.
+    /// </summary>
     public Task<PdfAnnotation> RestoreAnnotationAsync(AnnotationSnapshot snapshot)
     {
         return PdfWorker.Run(() =>
