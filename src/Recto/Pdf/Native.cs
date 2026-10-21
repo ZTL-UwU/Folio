@@ -78,6 +78,7 @@ internal static unsafe partial class Native
     public const int FPDF_ANNOT_WIDGET = 20;
 
     public const int FPDFANNOT_COLORTYPE_Color = 0;
+    public const int FPDF_ANNOT_APPEARANCEMODE_NORMAL = 0;
 
     [LibraryImport(Lib)] public static partial void FPDF_InitLibraryWithConfig(FPDF_LIBRARY_CONFIG* config);
     [LibraryImport(Lib)] public static partial uint FPDF_GetLastError();
@@ -165,16 +166,21 @@ internal static unsafe partial class Native
     [LibraryImport(Lib)] public static partial uint FPDFAnnot_GetStringValue(IntPtr annot, byte* key, void* buffer, uint buflen);
     [LibraryImport(Lib)] public static partial int FPDFAnnot_SetStringValue(IntPtr annot, byte* key, char* value);
     [LibraryImport(Lib)] public static partial int FPDFAnnot_AppendAttachmentPoints(IntPtr annot, FS_QUADPOINTSF* quad);
+    [LibraryImport(Lib)] public static partial int FPDFAnnot_GetFlags(IntPtr annot);
     [LibraryImport(Lib)] public static partial int FPDFAnnot_SetFlags(IntPtr annot, int flags);
+    [LibraryImport(Lib)] public static partial nuint FPDFAnnot_CountAttachmentPoints(IntPtr annot);
+    [LibraryImport(Lib)] public static partial int FPDFAnnot_GetAttachmentPoints(IntPtr annot, nuint index, FS_QUADPOINTSF* quad);
+    [LibraryImport(Lib)] public static partial int FPDFAnnot_SetAP(IntPtr annot, int appearanceMode, char* value);
 
     /// <summary>Longest document string <see cref="ReadUtf16"/> reads; anything longer comes back empty.</summary>
     private const uint MaxStringBytes = 16 << 20;
 
     /// <summary>
     /// Reads a UTF-16 string from a two-call PDFium API that reports its size in bytes. These are
-    /// strings from the document that end up in the UI, so bidi controls are removed.
+    /// strings from the document that end up in the UI, so bidi controls are removed unless
+    /// <paramref name="exact"/>, for strings that go back into the document.
     /// </summary>
-    public static string ReadUtf16(Func<IntPtr, uint, uint> call)
+    public static string ReadUtf16(Func<IntPtr, uint, uint> call, bool exact = false)
     {
         uint size = call(IntPtr.Zero, 0);
         if (size <= 2 || size > MaxStringBytes) return string.Empty;
@@ -183,6 +189,7 @@ internal static unsafe partial class Native
         {
             call((IntPtr)p, size);
         }
-        return Services.LaunchPolicy.StripBidiControls(System.Text.Encoding.Unicode.GetString(buffer, 0, (int)size - 2));
+        string text = System.Text.Encoding.Unicode.GetString(buffer, 0, (int)size - 2);
+        return exact ? text : Services.LaunchPolicy.StripBidiControls(text);
     }
 }

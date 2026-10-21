@@ -485,13 +485,17 @@ public sealed unsafe partial class PdfDocument : IDisposable
     private static readonly byte[] KeyAuthor = "T\0"u8.ToArray();
     private static readonly byte[] KeyModified = "M\0"u8.ToArray();
     private static readonly byte[] KeyName = "NM\0"u8.ToArray();
+    private static readonly byte[] KeySubject = "Subj\0"u8.ToArray();
+    private static readonly byte[] KeyCreated = "CreationDate\0"u8.ToArray();
+    /// <summary>The text entries a removed annotation is put back with.</summary>
+    private static readonly byte[][] RestoredKeys = [KeyName, KeyContents, KeyAuthor, KeySubject, KeyCreated, KeyModified];
 
-    private static string GetAnnotString(IntPtr annot, byte[] key)
+    private static string GetAnnotString(IntPtr annot, byte[] key, bool exact = false)
     {
         fixed (byte* k = key)
         {
             byte* kp = k;
-            return Native.ReadUtf16((b, l) => Native.FPDFAnnot_GetStringValue(annot, kp, (void*)b, l));
+            return Native.ReadUtf16((b, l) => Native.FPDFAnnot_GetStringValue(annot, kp, (void*)b, l), exact);
         }
     }
 
@@ -514,40 +518,7 @@ public sealed unsafe partial class PdfDocument : IDisposable
             if (annot == IntPtr.Zero) continue;
             try
             {
-                int subtype = Native.FPDFAnnot_GetSubtype(annot);
-                AnnotationKind? kind = subtype switch
-                {
-                    Native.FPDF_ANNOT_TEXT => AnnotationKind.Note,
-                    Native.FPDF_ANNOT_HIGHLIGHT => AnnotationKind.Highlight,
-                    Native.FPDF_ANNOT_UNDERLINE => AnnotationKind.Underline,
-                    Native.FPDF_ANNOT_STRIKEOUT => AnnotationKind.StrikeOut,
-                    Native.FPDF_ANNOT_SQUIGGLY => AnnotationKind.Squiggly,
-                    Native.FPDF_ANNOT_FREETEXT => AnnotationKind.FreeText,
-                    Native.FPDF_ANNOT_SQUARE or Native.FPDF_ANNOT_CIRCLE => AnnotationKind.Shape,
-                    Native.FPDF_ANNOT_INK => AnnotationKind.Ink,
-                    Native.FPDF_ANNOT_STAMP => AnnotationKind.Stamp,
-                    Native.FPDF_ANNOT_FILEATTACHMENT => AnnotationKind.Attachment,
-                    _ => null,
-                };
-                if (kind is null) continue;
-                FS_RECTF r;
-                if (Native.FPDFAnnot_GetRect(annot, &r) == 0) continue;
-                uint cr = 255, cg = 214, cb = 10, ca = 255;
-                Native.FPDFAnnot_GetColor(annot, Native.FPDFANNOT_COLORTYPE_Color, &cr, &cg, &cb, &ca);
-                result.Add(new PdfAnnotation
-                {
-                    PageIndex = index,
-                    Index = i,
-                    Subtype = subtype,
-                    UserRect = UserRect(r),
-                    Name = GetAnnotString(annot, KeyName),
-                    Kind = kind.Value,
-                    Bounds = transform.ApplyRect(r.Left, r.Top, r.Right, r.Bottom),
-                    Contents = GetAnnotString(annot, KeyContents),
-                    Author = GetAnnotString(annot, KeyAuthor),
-                    Modified = ParsePdfDate(GetAnnotString(annot, KeyModified)),
-                    Color = Color.FromArgb(255, (byte)cr, (byte)cg, (byte)cb),
-                });
+                if (ReadAnnotation(index, i, annot, transform) is { } annotation) result.Add(annotation);
             }
             finally
             {
@@ -557,10 +528,54 @@ public sealed unsafe partial class PdfDocument : IDisposable
         return [.. result];
     }
 
+    /// <summary>Annotation <paramref name="i"/> on page <paramref name="index"/>, or null if it's of a kind Recto doesn't show.</summary>
+    private static PdfAnnotation? ReadAnnotation(int index, int i, IntPtr annot, PageTransform transform)
+    {
+        int subtype = Native.FPDFAnnot_GetSubtype(annot);
+        AnnotationKind? kind = subtype switch
+        {
+            Native.FPDF_ANNOT_TEXT => AnnotationKind.Note,
+            Native.FPDF_ANNOT_HIGHLIGHT => AnnotationKind.Highlight,
+            Native.FPDF_ANNOT_UNDERLINE => AnnotationKind.Underline,
+            Native.FPDF_ANNOT_STRIKEOUT => AnnotationKind.StrikeOut,
+            Native.FPDF_ANNOT_SQUIGGLY => AnnotationKind.Squiggly,
+            Native.FPDF_ANNOT_FREETEXT => AnnotationKind.FreeText,
+            Native.FPDF_ANNOT_SQUARE or Native.FPDF_ANNOT_CIRCLE => AnnotationKind.Shape,
+            Native.FPDF_ANNOT_INK => AnnotationKind.Ink,
+            Native.FPDF_ANNOT_STAMP => AnnotationKind.Stamp,
+            Native.FPDF_ANNOT_FILEATTACHMENT => AnnotationKind.Attachment,
+            _ => null,
+        };
+        if (kind is null) return null;
+        FS_RECTF r;
+        if (Native.FPDFAnnot_GetRect(annot, &r) == 0) return null;
+        uint cr = 255, cg = 214, cb = 10, ca = 255;
+        Native.FPDFAnnot_GetColor(annot, Native.FPDFANNOT_COLORTYPE_Color, &cr, &cg, &cb, &ca);
+        return new PdfAnnotation
+        {
+            PageIndex = index,
+            Index = i,
+            Subtype = subtype,
+            UserRect = UserRect(r),
+            Name = GetAnnotString(annot, KeyName),
+            Kind = kind.Value,
+            Bounds = transform.ApplyRect(r.Left, r.Top, r.Right, r.Bottom),
+            Contents = GetAnnotString(annot, KeyContents),
+            Author = GetAnnotString(annot, KeyAuthor),
+            Modified = ParsePdfDate(GetAnnotString(annot, KeyModified)),
+            Color = Color.FromArgb(255, (byte)cr, (byte)cg, (byte)cb),
+        };
+    }
+
+    /// <summary>Reads the annotation just added to the end of <paramref name="page"/>'s /Annots.</summary>
+    private PdfAnnotation ReadCreated(int index, IntPtr page, IntPtr annot) =>
+        ReadAnnotation(index, Native.FPDFPage_GetAnnotCount(page) - 1, annot, GetTransform(index))
+        ?? throw new InvalidOperationException("The annotation could not be read back.");
+
     private PdfAnnotation[] ReadAnnotations(int index) => _disposed ? [] : ReadAnnotations(index, GetPage(index), GetTransform(index));
 
     /// <summary>Adds a highlight covering <paramref name="rects"/> (display points).</summary>
-    public Task AddHighlightAsync(int index, IReadOnlyList<Rect> rects, Color color)
+    public Task<PdfAnnotation> AddHighlightAsync(int index, IReadOnlyList<Rect> rects, Color color)
     {
         return PdfWorker.Run(() =>
         {
@@ -594,17 +609,18 @@ public sealed unsafe partial class PdfDocument : IDisposable
                 Native.FPDFAnnot_SetRect(annot, &bounds);
                 Native.FPDFAnnot_SetFlags(annot, 4 /* print */);
                 StampAnnotation(annot, "");
+                MarkEdited();
+                return ReadCreated(index, page, annot);
             }
             finally
             {
                 Native.FPDFPage_CloseAnnot(annot);
             }
-            MarkEdited();
         }, WorkPriority.Visible);
     }
 
     /// <summary>Adds a sticky note whose top-left corner is at <paramref name="at"/> (display points).</summary>
-    public Task AddNoteAsync(int index, Point at, Color color, string contents)
+    public Task<PdfAnnotation> AddNoteAsync(int index, Point at, Color color, string contents)
     {
         return PdfWorker.Run(() =>
         {
@@ -625,18 +641,21 @@ public sealed unsafe partial class PdfDocument : IDisposable
                 Native.FPDFAnnot_SetColor(annot, Native.FPDFANNOT_COLORTYPE_Color, color.R, color.G, color.B, 255);
                 Native.FPDFAnnot_SetFlags(annot, 4 | 8 | 16 /* print, no zoom, no rotate */);
                 StampAnnotation(annot, contents);
+                MarkEdited();
+                return ReadCreated(index, page, annot);
             }
             finally
             {
                 Native.FPDFPage_CloseAnnot(annot);
             }
-            MarkEdited();
         }, WorkPriority.Visible);
     }
 
+    private const string RectoNamePrefix = "recto-";
+
     private static void StampAnnotation(IntPtr annot, string contents)
     {
-        SetAnnotString(annot, KeyName, $"recto-{Guid.NewGuid():N}");
+        SetAnnotString(annot, KeyName, $"{RectoNamePrefix}{Guid.NewGuid():N}");
         SetAnnotString(annot, KeyContents, contents);
         SetAnnotString(annot, KeyAuthor, Environment.UserName);
         SetAnnotString(annot, KeyModified, FormatPdfDate(DateTimeOffset.Now));
@@ -647,6 +666,9 @@ public sealed unsafe partial class PdfDocument : IDisposable
     private static bool IsSameAnnotation(IntPtr annot, PdfAnnotation annotation)
     {
         if (Native.FPDFAnnot_GetSubtype(annot) != annotation.Subtype) return false;
+        // Recto's own names are unique, so they tell the annotation apart even if PDFium moved its /Rect
+        // while drawing it, which it does to notes.
+        if (annotation.Name.StartsWith(RectoNamePrefix, StringComparison.Ordinal)) return GetAnnotString(annot, KeyName) == annotation.Name;
         FS_RECTF r;
         if (Native.FPDFAnnot_GetRect(annot, &r) == 0) return false;
         Rect current = UserRect(r), recorded = annotation.UserRect;
@@ -686,21 +708,27 @@ public sealed unsafe partial class PdfDocument : IDisposable
         return fallback;
     }
 
-    public Task SetAnnotationContentsAsync(PdfAnnotation annotation, string contents)
+    /// <summary>
+    /// Sets the text of <paramref name="annotation"/>. Returns the text it replaced, or null if the annotation is gone
+    /// or already had this text.
+    /// </summary>
+    public Task<string?> SetAnnotationContentsAsync(PdfAnnotation annotation, string contents)
     {
         return PdfWorker.Run(() =>
         {
             IntPtr page = GetPage(annotation.PageIndex);
             int index = FindAnnotation(page, annotation);
-            if (index < 0) return;
+            if (index < 0) return null;
             IntPtr annot = Native.FPDFPage_GetAnnot(page, index);
-            if (annot == IntPtr.Zero) return;
+            if (annot == IntPtr.Zero) return null;
             try
             {
-                if (GetAnnotString(annot, KeyContents) == contents) return;
+                string previous = GetAnnotString(annot, KeyContents, exact: true);
+                if (previous == contents) return null;
                 SetAnnotString(annot, KeyContents, contents);
                 SetAnnotString(annot, KeyModified, FormatPdfDate(DateTimeOffset.Now));
                 MarkEdited();
+                return previous;
             }
             finally
             {
@@ -709,17 +737,97 @@ public sealed unsafe partial class PdfDocument : IDisposable
         }, WorkPriority.Visible);
     }
 
-    public Task RemoveAnnotationAsync(PdfAnnotation annotation)
+    /// <summary>
+    /// Removes <paramref name="annotation"/>. Returns what <see cref="RestoreAnnotationAsync"/> needs to put it back, or
+    /// null if it was gone already or is of a kind that can't be put back.
+    /// </summary>
+    public Task<AnnotationSnapshot?> RemoveAnnotationAsync(PdfAnnotation annotation)
     {
         return PdfWorker.Run(() =>
         {
             IntPtr page = GetPage(annotation.PageIndex);
             int index = FindAnnotation(page, annotation);
-            if (index >= 0 && Native.FPDFPage_RemoveAnnot(page, index) != 0)
+            if (index < 0) return null;
+            var snapshot = TakeSnapshot(annotation.PageIndex, page, index);
+            if (Native.FPDFPage_RemoveAnnot(page, index) == 0) return null;
+            MarkEdited();
+            // Force PDFium to rebuild the page's cached annotation list.
+            EvictPage(annotation.PageIndex);
+            return snapshot;
+        }, WorkPriority.Visible);
+    }
+
+    /// <summary>
+    /// Kinds that can be put back once removed: PDFium can create them, and draw them from what a snapshot keeps.
+    /// Others, such as stamps and drawings, depend on their appearance stream and its resources.
+    /// </summary>
+    private static bool IsRestorable(int subtype) => subtype is Native.FPDF_ANNOT_TEXT or Native.FPDF_ANNOT_HIGHLIGHT
+        or Native.FPDF_ANNOT_UNDERLINE or Native.FPDF_ANNOT_SQUIGGLY or Native.FPDF_ANNOT_STRIKEOUT;
+
+    private static AnnotationSnapshot? TakeSnapshot(int index, IntPtr page, int i)
+    {
+        IntPtr annot = Native.FPDFPage_GetAnnot(page, i);
+        if (annot == IntPtr.Zero) return null;
+        try
+        {
+            int subtype = Native.FPDFAnnot_GetSubtype(annot);
+            FS_RECTF rect;
+            if (!IsRestorable(subtype) || Native.FPDFAnnot_GetRect(annot, &rect) == 0) return null;
+            // PDFium only reads the color of an annotation without an appearance stream. This one is about to be
+            // removed, and the one put back gets its appearance drawn anew from the color.
+            Native.FPDFAnnot_SetAP(annot, Native.FPDF_ANNOT_APPEARANCEMODE_NORMAL, null);
+            uint r, g, b, a;
+            bool hasColor = Native.FPDFAnnot_GetColor(annot, Native.FPDFANNOT_COLORTYPE_Color, &r, &g, &b, &a) != 0;
+            var quads = new List<FS_QUADPOINTSF>();
+            nuint count = Native.FPDFAnnot_CountAttachmentPoints(annot);
+            for (nuint q = 0; q < count; q++)
             {
+                FS_QUADPOINTSF quad;
+                if (Native.FPDFAnnot_GetAttachmentPoints(annot, q, &quad) != 0) quads.Add(quad);
+            }
+            return new AnnotationSnapshot
+            {
+                PageIndex = index,
+                Subtype = subtype,
+                Rect = rect,
+                Color = hasColor ? (r, g, b, a) : null,
+                Quads = [.. quads],
+                Flags = Native.FPDFAnnot_GetFlags(annot),
+                Strings = [.. RestoredKeys.Select(key => (key, GetAnnotString(annot, key, exact: true))).Where(s => s.Item2.Length > 0)],
+            };
+        }
+        finally
+        {
+            Native.FPDFPage_CloseAnnot(annot);
+        }
+    }
+
+    /// <summary>Puts back an annotation removed by <see cref="RemoveAnnotationAsync"/>, on top of the others on its page.</summary>
+    public Task<PdfAnnotation> RestoreAnnotationAsync(AnnotationSnapshot snapshot)
+    {
+        return PdfWorker.Run(() =>
+        {
+            IntPtr page = GetPage(snapshot.PageIndex);
+            IntPtr annot = Native.FPDFPage_CreateAnnot(page, snapshot.Subtype);
+            if (annot == IntPtr.Zero) throw new InvalidOperationException("The annotation could not be put back.");
+            try
+            {
+                var rect = snapshot.Rect;
+                Native.FPDFAnnot_SetRect(annot, &rect);
+                if (snapshot.Color is { } c) Native.FPDFAnnot_SetColor(annot, Native.FPDFANNOT_COLORTYPE_Color, c.R, c.G, c.B, c.A);
+                foreach (var q in snapshot.Quads)
+                {
+                    var quad = q;
+                    Native.FPDFAnnot_AppendAttachmentPoints(annot, &quad);
+                }
+                Native.FPDFAnnot_SetFlags(annot, snapshot.Flags);
+                foreach (var (key, value) in snapshot.Strings) SetAnnotString(annot, key, value);
                 MarkEdited();
-                // Force PDFium to rebuild the page's cached annotation list.
-                EvictPage(annotation.PageIndex);
+                return ReadCreated(snapshot.PageIndex, page, annot);
+            }
+            finally
+            {
+                Native.FPDFPage_CloseAnnot(annot);
             }
         }, WorkPriority.Visible);
     }

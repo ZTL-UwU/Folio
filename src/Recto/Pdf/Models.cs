@@ -74,6 +74,19 @@ public sealed class PdfAnnotation
     public Color Color { get; init; } = Color.FromArgb(255, 255, 214, 10);
 }
 
+/// <summary>A removed annotation, with what <see cref="PdfDocument.RestoreAnnotationAsync"/> needs to put it back.</summary>
+public sealed class AnnotationSnapshot
+{
+    public required int PageIndex { get; init; }
+    internal int Subtype { get; init; }
+    internal FS_RECTF Rect { get; init; }
+    internal (uint R, uint G, uint B, uint A)? Color { get; init; }
+    internal FS_QUADPOINTSF[] Quads { get; init; } = [];
+    internal int Flags { get; init; }
+    /// <summary>Text entries such as /Contents and /NM, by their key with its terminating zero.</summary>
+    internal (byte[] Key, string Value)[] Strings { get; init; } = [];
+}
+
 public sealed class PageText
 {
     public required int PageIndex { get; init; }

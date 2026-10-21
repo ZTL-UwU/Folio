@@ -2296,6 +2296,10 @@ public sealed partial class MainWindow : Window
         Add(VirtualKey.R, Ctrl, () => _ = ReloadIfAllowedAsync(), true);
         Add(VirtualKey.Enter, VirtualKeyModifiers.Menu, () => OnProperties(this, new RoutedEventArgs()), true);
         Add(VirtualKey.H, Ctrl, () => Viewer.HighlightSelection(), false);
+        // Text boxes keep these for their own text.
+        Add(VirtualKey.Z, Ctrl, Viewer.Undo, false);
+        Add(VirtualKey.Y, Ctrl, Viewer.Redo, false);
+        Add(VirtualKey.Z, Ctrl | Shift, Viewer.Redo, false);
         Add((VirtualKey)191, Ctrl | Shift, () => OnShortcuts(this, new RoutedEventArgs()), true);
         Add(VirtualKey.F1, None, () => OnShortcuts(this, new RoutedEventArgs()), true);
         Add((VirtualKey)188, Ctrl, () => OnSettings(this, new RoutedEventArgs()), true);
