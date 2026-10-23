@@ -220,7 +220,10 @@ internal static class Dialogs
             ]),
             ("Search and selection", [
                 ("Ctrl+F", "Search"), ("F3 / Enter", "Next result"), ("Shift+F3 / Shift+Enter", "Previous result"),
-                ("Ctrl+C", "Copy selected text"), ("Ctrl+A", "Select all"), ("Ctrl+H", "Highlight selection"),
+                ("Ctrl+C", "Copy selected text"), ("Ctrl+A", "Select all"),
+            ]),
+            ("Annotations", [
+                ("Ctrl+H", "Highlight selection"), ("Ctrl+Z", "Undo"), ("Ctrl+Y / Ctrl+Shift+Z", "Redo"),
             ]),
             ("View", [
                 ("Ctrl+Plus / Ctrl+Minus", "Zoom in / out"), ("Ctrl+0", "Actual size"), ("Ctrl+Wheel", "Zoom"),

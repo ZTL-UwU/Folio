@@ -223,6 +223,8 @@ public sealed partial class DocumentView : UserControl
         StopAutoScroll();
         StopKeyScroll();
         _noteEdits.Clear();
+        _undo.Clear();
+        _redo.Clear();
         foreach (var view in _views.Values) view.Release();
         _views.Clear();
         _host.Children.Clear();
@@ -545,11 +547,8 @@ public sealed partial class DocumentView : UserControl
     private void EnsurePageVisible(int index, Rect displayBounds)
     {
         if (!_continuous || _presentation) GoToPage(index);
-        var rect = _pageRects[index];
-        if (rect.IsEmpty || displayBounds.IsEmpty) { GoToPage(index); return; }
-        var tl = RotatedLayoutPoint(index, new Point(displayBounds.Left, displayBounds.Top));
-        var br = RotatedLayoutPoint(index, new Point(displayBounds.Right, displayBounds.Bottom));
-        var target = new Rect(new Point(rect.Left + tl.X, rect.Top + tl.Y), new Point(rect.Left + br.X, rect.Top + br.Y));
+        var target = LayoutRect(index, displayBounds);
+        if (target.IsEmpty) { GoToPage(index); return; }
         double z = Zoom;
         double vw = _scroller.ViewportWidth / z, vh = _scroller.ViewportHeight / z;
         double left = _scroller.HorizontalOffset / z, top = _scroller.VerticalOffset / z;
@@ -558,6 +557,16 @@ public sealed partial class DocumentView : UserControl
         if (target.Left < left || target.Right > left + vw) h = (target.Left - vw / 3) * z;
         if (h is not null || v is not null) ScrollTo(h is null ? null : Math.Max(0, h.Value), v is null ? null : Math.Max(0, v.Value), null, true);
         SetCurrentPage(index);
+    }
+
+    /// <summary>Where <paramref name="displayBounds"/> on page <paramref name="index"/> is laid out, or empty if the page isn't.</summary>
+    private Rect LayoutRect(int index, Rect displayBounds)
+    {
+        var rect = _pageRects[index];
+        if (rect.IsEmpty || displayBounds.IsEmpty) return Rect.Empty;
+        var tl = RotatedLayoutPoint(index, new Point(displayBounds.Left, displayBounds.Top));
+        var br = RotatedLayoutPoint(index, new Point(displayBounds.Right, displayBounds.Bottom));
+        return new Rect(new Point(rect.Left + tl.X, rect.Top + tl.Y), new Point(rect.Left + br.X, rect.Top + br.Y));
     }
 
     // ---------------------------------------------------------------- layout
@@ -2092,6 +2101,7 @@ public sealed partial class DocumentView : UserControl
         if (_document is null || GetSelection() is not { } sel) return;
         var document = _document;
         var pages = new List<int>();
+        var changes = new List<AnnotationChange>();
         try
         {
             for (int p = sel.Start.Page; p <= sel.End.Page; p++)
@@ -2103,7 +2113,7 @@ public sealed partial class DocumentView : UserControl
                 int end = p == sel.End.Page ? sel.End.Caret : text.Count;
                 var rects = HitRects(text, start, end);
                 if (rects.Count == 0) continue;
-                await document.AddHighlightAsync(p, rects, color ?? HighlightColors[0].Color);
+                changes.Add(new PresenceChange(await document.AddHighlightAsync(p, rects, color ?? HighlightColors[0].Color), added: true));
                 pages.Add(p);
             }
         }
@@ -2113,6 +2123,7 @@ public sealed partial class DocumentView : UserControl
             ReportEditFailure(document, ex, "The text couldn't be highlighted.");
         }
         if (document != _document) return;
+        Record([.. changes]);
         ClearSelection();
         foreach (var p in pages)
         {
@@ -2152,9 +2163,10 @@ public sealed partial class DocumentView : UserControl
     {
         if (_document is null) return;
         var document = _document;
+        PdfAnnotation created;
         try
         {
-            await document.AddNoteAsync(page, display, HighlightColors[0].Color, "");
+            created = await document.AddNoteAsync(page, display, HighlightColors[0].Color, "");
         }
         catch (Exception ex) when (IsEditFailure(ex))
         {
@@ -2162,6 +2174,7 @@ public sealed partial class DocumentView : UserControl
             return;
         }
         if (document != _document) return;
+        Record(new PresenceChange(created, added: true));
         InvalidatePage(page);
         AnnotationsChanged?.Invoke(this, page);
         var text = await GetTextAsync(page);
@@ -2173,9 +2186,10 @@ public sealed partial class DocumentView : UserControl
     {
         if (_document is null) return;
         var document = _document;
+        AnnotationSnapshot? removed;
         try
         {
-            await document.RemoveAnnotationAsync(annotation);
+            removed = await document.RemoveAnnotationAsync(annotation);
         }
         catch (Exception ex) when (IsEditFailure(ex))
         {
@@ -2183,6 +2197,15 @@ public sealed partial class DocumentView : UserControl
             return;
         }
         if (document != _document) return;
+        if (removed is not null) Record(new PresenceChange(annotation, added: false, removed));
+        else
+        {
+            // A kind that can't be put back, such as a stamp: its deletion can't be undone, so Ctrl+Z doesn't take
+            // back an older change instead, as if it were this one.
+            _undo.Clear();
+            _redo.Clear();
+            _historyVersion++;
+        }
         InvalidatePage(annotation.PageIndex);
         AnnotationsChanged?.Invoke(this, annotation.PageIndex);
     }
@@ -2248,14 +2271,16 @@ public sealed partial class DocumentView : UserControl
             },
         };
         if (string.IsNullOrEmpty(header.Text)) header.Visibility = Visibility.Collapsed;
-        var edit = new NoteEdit(document, annotation, box);
+        var edit = new NoteEdit(document, annotation, box, flyout);
         box.TextChanged += (_, _) => NoteTextVersion++;
         _noteEdits.Add(edit);
-        delete.Click += (_, _) =>
+        delete.Click += async (_, _) =>
         {
             _noteEdits.Remove(edit);
             flyout.Hide();
-            DeleteAnnotation(annotation);
+            // The text typed into the note is written first, so undoing the deletion puts it back with the note.
+            await CommitNoteAsync(edit);
+            if (edit.Document == _document) DeleteAnnotation(annotation);
         };
         flyout.Opened += (_, _) => box.Focus(FocusState.Programmatic);
         flyout.Closed += async (_, _) =>
@@ -2267,10 +2292,11 @@ public sealed partial class DocumentView : UserControl
     }
 
     /// <summary>The text box of an open note flyout, whose text is written to the document when the flyout closes.</summary>
-    private sealed class NoteEdit(PdfDocument document, PdfAnnotation annotation, TextBox box)
+    private sealed class NoteEdit(PdfDocument document, PdfAnnotation annotation, TextBox box, Flyout flyout)
     {
         public PdfDocument Document { get; } = document;
         public PdfAnnotation Annotation { get; } = annotation;
+        public Flyout Flyout { get; } = flyout;
         public string Text => box.Text;
         /// <summary>The contents last written to the document.</summary>
         public string Saved { get; set; } = annotation.Contents;
@@ -2296,9 +2322,10 @@ public sealed partial class DocumentView : UserControl
         // Set first, so a commit that starts meanwhile doesn't write the same text again.
         edit.Saved = text;
         int page = edit.Annotation.PageIndex;
+        string? replaced;
         try
         {
-            await edit.Document.SetAnnotationContentsAsync(edit.Annotation, text);
+            replaced = await edit.Document.SetAnnotationContentsAsync(edit.Annotation, text);
         }
         catch (Exception ex) when (IsEditFailure(ex))
         {
@@ -2308,9 +2335,148 @@ public sealed partial class DocumentView : UserControl
             return;
         }
         if (edit.Document != _document) return;
+        if (replaced is not null) RecordContents(edit.Annotation, replaced, text);
         _texts.Remove(page);
         EnsureText(page);
         AnnotationsChanged?.Invoke(this, page);
+    }
+
+    // ---------------------------------------------------------------- annotation history
+
+    /// <summary>A change to one annotation, which can be taken back and made again.</summary>
+    private abstract class AnnotationChange(PdfAnnotation annotation)
+    {
+        /// <summary>The annotation as last read, to find it in the document by.</summary>
+        public PdfAnnotation Annotation { get; protected set; } = annotation;
+        public abstract Task UndoAsync(PdfDocument document);
+        public abstract Task RedoAsync(PdfDocument document);
+    }
+
+    /// <summary>An annotation added or deleted. Taking back either is doing the other.</summary>
+    private sealed class PresenceChange(PdfAnnotation annotation, bool added, AnnotationSnapshot? removed = null) : AnnotationChange(annotation)
+    {
+        private AnnotationSnapshot? _removed = removed;
+        public bool Added => added;
+
+        public override Task UndoAsync(PdfDocument document) => added ? RemoveAsync(document) : RestoreAsync(document);
+        public override Task RedoAsync(PdfDocument document) => added ? RestoreAsync(document) : RemoveAsync(document);
+
+        /// <summary>Whether this adds <paramref name="other"/>, which Recto named when it added it.</summary>
+        public bool Adds(PdfAnnotation other) =>
+            added && other.Name.Length > 0 && other.Name == Annotation.Name && other.PageIndex == Annotation.PageIndex && other.Subtype == Annotation.Subtype;
+
+        private async Task RemoveAsync(PdfDocument document) => _removed = await document.RemoveAnnotationAsync(Annotation);
+
+        private async Task RestoreAsync(PdfDocument document)
+        {
+            // Gone already when it was to be removed, so there's nothing to put back.
+            if (_removed is null) return;
+            Annotation = await document.RestoreAnnotationAsync(_removed);
+            _removed = null;
+        }
+    }
+
+    /// <summary>A note's text changed from <paramref name="before"/> to <paramref name="after"/>.</summary>
+    private sealed class ContentsChange(PdfAnnotation annotation, string before, string after) : AnnotationChange(annotation)
+    {
+        public override Task UndoAsync(PdfDocument document) => document.SetAnnotationContentsAsync(Annotation, before);
+        public override Task RedoAsync(PdfDocument document) => document.SetAnnotationContentsAsync(Annotation, after);
+    }
+
+    /// <summary>Steps of annotation changes, each taken back or made again as a whole.</summary>
+    private readonly Stack<AnnotationChange[]> _undo = new(), _redo = new();
+    /// <summary>Changes whenever a step is recorded, to tell whether one was while an undo was being made.</summary>
+    private int _historyVersion;
+    /// <summary>One undo or redo at a time, so a held-down key takes back steps in order.</summary>
+    private readonly SemaphoreSlim _historyTurn = new(1, 1);
+
+    private void Record(params AnnotationChange[] step)
+    {
+        if (step.Length == 0) return;
+        _undo.Push(step);
+        _redo.Clear();
+        _historyVersion++;
+    }
+
+    private void RecordContents(PdfAnnotation annotation, string before, string after)
+    {
+        // The first text typed into an annotation just added goes with it: undo takes back both, and redo puts back the text too.
+        if (before.Length == 0 && _undo.TryPeek(out var last) && last.Any(c => c is PresenceChange p && p.Adds(annotation)))
+        {
+            _redo.Clear();
+            _historyVersion++;
+            return;
+        }
+        Record(new ContentsChange(annotation, before, after));
+    }
+
+    /// <summary>Takes back the last highlight, note or other annotation change.</summary>
+    public async void Undo() => await StepHistoryAsync(undo: true);
+
+    /// <summary>Makes again the last annotation change that was undone.</summary>
+    public async void Redo() => await StepHistoryAsync(undo: false);
+
+    private async Task StepHistoryAsync(bool undo)
+    {
+        var document = _document;
+        if (document is null) return;
+        await _historyTurn.WaitAsync();
+        try
+        {
+            // Text typed into a note that's still open is the latest edit. Undo writes it first, so it's what's
+            // taken back. Redo has nothing to make again after it, just as writing it would drop the steps that
+            // could be redone; the note stays open with its text.
+            bool drafting = _noteEdits.Any(e => e.IsChanged);
+            if (undo ? _undo.Count == 0 && !drafting : _redo.Count == 0 || drafting) return;
+            await CommitPendingEditsAsync();
+            // A draft that couldn't be written stays in its flyout, to be written when it closes.
+            if (_noteEdits.Any(e => e.IsChanged)) return;
+            // The flyouts close, as they would show text the document no longer has.
+            foreach (var edit in _noteEdits.ToList())
+            {
+                _noteEdits.Remove(edit);
+                edit.Flyout.Hide();
+            }
+            var (from, to) = undo ? (_undo, _redo) : (_redo, _undo);
+            if (document != _document || !from.TryPop(out var step)) return;
+            int version = _historyVersion;
+            var pages = new SortedSet<int>();
+            try
+            {
+                foreach (var change in undo ? Enumerable.Reverse(step) : step)
+                {
+                    pages.Add(change.Annotation.PageIndex);
+                    await (undo ? change.UndoAsync(document) : change.RedoAsync(document));
+                }
+                // The document closed or reloaded meanwhile: its history is gone. An edit made meanwhile drops
+                // what could be redone, this too.
+                if (document == _document && (!undo || version == _historyVersion)) to.Push(step);
+            }
+            catch (Exception ex) when (IsEditFailure(ex))
+            {
+                // Left out of the history: partly made, it can't be taken back or made again as a whole.
+                ReportEditFailure(document, ex, undo ? "The change couldn't be undone." : "The change couldn't be redone.");
+            }
+            if (document != _document) return;
+            foreach (int page in pages)
+            {
+                InvalidatePage(page);
+                AnnotationsChanged?.Invoke(this, page);
+            }
+            RevealAnnotationArea(step[0].Annotation);
+        }
+        finally
+        {
+            _historyTurn.Release();
+        }
+    }
+
+    /// <summary>Scrolls to an annotation that undo or redo changed, unless it's in view already.</summary>
+    private void RevealAnnotationArea(PdfAnnotation annotation)
+    {
+        var target = LayoutRect(annotation.PageIndex, annotation.Bounds);
+        target.Intersect(VisibleContentRect());
+        if (target.IsEmpty) EnsurePageVisible(annotation.PageIndex, annotation.Bounds);
     }
 
     public static string KindName(AnnotationKind kind) => kind switch

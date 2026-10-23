@@ -250,6 +250,88 @@ public sealed class PdfDocumentTests : IDisposable
     }
 
     [Fact]
+    public async Task RemovedHighlight_IsPutBackAsItWas()
+    {
+        string path = _temp.Write("doc.pdf", TestPdf.Create());
+        using var document = await PdfDocument.OpenAsync(path);
+        var green = Color.FromArgb(255, 102, 204, 102);
+        var added = await document.AddHighlightAsync(0, [new Rect(10, 10, 80, 12), new Rect(10, 30, 50, 12)], green);
+        await document.SetAnnotationContentsAsync(added, "comment");
+        // Drawing the page gives the highlight an appearance stream, after which PDFium won't read its color.
+        (await document.RenderAsync(0, 1, 0, new Windows.Graphics.RectInt32(0, 0, 200, 300), false, WorkPriority.Visible, CancellationToken.None))?.Dispose();
+        var before = Assert.Single(await document.GetAllAnnotationsAsync(CancellationToken.None));
+        var removed = await document.RemoveAnnotationAsync(before);
+        Assert.NotNull(removed);
+        Assert.Empty(await document.GetAllAnnotationsAsync(CancellationToken.None));
+
+        var restored = await document.RestoreAnnotationAsync(removed);
+        var after = Assert.Single(await document.GetAllAnnotationsAsync(CancellationToken.None));
+        Assert.Equal(AnnotationKind.Highlight, after.Kind);
+        Assert.Equal("comment", after.Contents);
+        Assert.Equal(before.Author, after.Author);
+        Assert.Equal(before.Modified, after.Modified);
+        Assert.Equal(before.Bounds, after.Bounds);
+        Assert.Equal(green, after.Color);
+        Assert.Equal(after.Bounds, restored.Bounds);
+
+        // What was read before it was removed still finds it, so it can be removed again.
+        Assert.NotNull(await document.RemoveAnnotationAsync(before));
+        Assert.Empty(await document.GetAllAnnotationsAsync(CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task RemovedNote_IsPutBackWithItsText()
+    {
+        string path = _temp.Write("doc.pdf", TestPdf.Create());
+        using var document = await PdfDocument.OpenAsync(path);
+        var note = await document.AddNoteAsync(0, new Point(10, 10), Yellow, "remember\nthis");
+
+        var removed = await document.RemoveAnnotationAsync(note);
+        Assert.NotNull(removed);
+        await document.RestoreAnnotationAsync(removed);
+        await document.SaveAsync(path);
+
+        using var reopened = await PdfDocument.OpenAsync(path);
+        var restored = Assert.Single(await reopened.GetAllAnnotationsAsync(CancellationToken.None));
+        Assert.Equal(AnnotationKind.Note, restored.Kind);
+        Assert.Equal("remember\nthis", restored.Contents);
+        Assert.Equal(note.Bounds, restored.Bounds);
+    }
+
+    [Fact]
+    public async Task RestoredNoteFromAnotherProgram_IsFoundAfterItsAppearanceIsDrawn()
+    {
+        string path = _temp.Write("doc.pdf", TestPdf.Create(annots: ["<< /Type /Annot /Subtype /Text /Rect [50 50 90 100] /AP << /N {appearance} >> /Contents (theirs) /NM (their-note) >>"]));
+        using var document = await PdfDocument.OpenAsync(path);
+        var note = Assert.Single(await document.GetAllAnnotationsAsync(CancellationToken.None));
+
+        var removed = await document.RemoveAnnotationAsync(note);
+        Assert.NotNull(removed);
+        var restored = await document.RestoreAnnotationAsync(removed);
+        // The note put back has no appearance stream. PDFium draws one when the page loads again, as it does after
+        // another deletion on it, and resizes the note's /Rect to fit.
+        await document.RemoveAnnotationAsync(await document.AddNoteAsync(0, new Point(150, 10), Yellow, ""));
+        Assert.NotEqual(restored.Bounds, Assert.Single(await document.GetAllAnnotationsAsync(CancellationToken.None)).Bounds);
+
+        Assert.NotNull(await document.RemoveAnnotationAsync(restored));
+        Assert.Empty(await document.GetAllAnnotationsAsync(CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task SettingContents_ReturnsTheTextItReplaced()
+    {
+        string path = _temp.Write("doc.pdf", TestPdf.Create());
+        using var document = await PdfDocument.OpenAsync(path);
+        var note = await document.AddNoteAsync(0, new Point(10, 10), Yellow, "a");
+
+        Assert.Equal("a", await document.SetAnnotationContentsAsync(note, "b"));
+        // Nothing to take back when the text didn't change or the note is gone.
+        Assert.Null(await document.SetAnnotationContentsAsync(note, "b"));
+        await document.RemoveAnnotationAsync(note);
+        Assert.Null(await document.SetAnnotationContentsAsync(note, "c"));
+    }
+
+    [Fact]
     public async Task SearchText_HasPdfiumsCharacterIndexes_AndFindsWordsHyphenatedAcrossLines()
     {
         string path = _temp.Write("text.pdf", TestPdf.Create(text: "This is an exam-\nple of a search\nengine."));

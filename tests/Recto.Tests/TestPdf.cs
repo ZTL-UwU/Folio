@@ -19,16 +19,24 @@ internal static class TestPdf
     /// <param name="userPassword">Encrypts the file so it needs this password to open.</param>
     /// <param name="marker">A comment written into the body, to check that saving keeps the original bytes.</param>
     /// <param name="text">Text written on every page in Helvetica, a line per <c>\n</c>, from the top left. Not with <paramref name="userPassword"/>.</param>
-    public static byte[] Create(int pages = 1, string mediaBox = "0 0 200 300", string? userPassword = null, string marker = "", string? text = null)
+    /// <param name="annots">
+    /// Annotation dictionaries on the first page, as another program would have written them. <c>{appearance}</c> in one
+    /// stands for a reference to an appearance stream, a filled square.
+    /// </param>
+    public static byte[] Create(int pages = 1, string mediaBox = "0 0 200 300", string? userPassword = null, string marker = "", string? text = null, string[]? annots = null)
     {
         var objects = new List<string>
         {
             "<< /Type /Catalog /Pages 2 0 R >>",
             $"<< /Type /Pages /Kids [{string.Join(" ", Enumerable.Range(0, pages).Select(i => $"{i + 3} 0 R"))}] /Count {pages} >>",
         };
-        int font = pages + 3, content = pages + 4;
+        int font = pages + 3, content = pages + 4, appearance = pages + (text is null ? 3 : 5);
         string resources = text is null ? "" : $" /Resources << /Font << /F1 {font} 0 R >> >> /Contents {content} 0 R";
-        for (int i = 0; i < pages; i++) objects.Add($"<< /Type /Page /Parent 2 0 R /MediaBox [{mediaBox}]{resources} >>");
+        for (int i = 0; i < pages; i++)
+        {
+            string annotations = i == 0 && annots is not null ? $" /Annots [{string.Join(" ", annots).Replace("{appearance}", $"{appearance} 0 R")}]" : "";
+            objects.Add($"<< /Type /Page /Parent 2 0 R /MediaBox [{mediaBox}]{resources}{annotations} >>");
+        }
         if (text is not null)
         {
             if (userPassword is not null) throw new ArgumentException("Text isn't encrypted, so it can't go in an encrypted file.");
@@ -36,6 +44,11 @@ internal static class TestPdf
             string stream = $"BT /F1 12 Tf 14 TL 10 {top} Td T* {string.Concat(text.Split('\n').Select(line => $"({line}) Tj T* "))}ET";
             objects.Add("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>");
             objects.Add($"<< /Length {stream.Length} >>\nstream\n{stream}\nendstream");
+        }
+        if (annots is not null)
+        {
+            const string Square = "0 0 1 rg 0 0 10 10 re f";
+            objects.Add($"<< /Type /XObject /Subtype /Form /BBox [0 0 10 10] /Length {Square.Length} >>\nstream\n{Square}\nendstream");
         }
 
         string trailerExtra = "";
