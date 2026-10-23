@@ -4,6 +4,10 @@
 
 A simple PDF viewer for Windows 11, modeled on [GNOME Papers](https://apps.gnome.org/Papers/) and built with WinUI 3.
 
+<a href="https://get.microsoft.com/installer/download/9NBKNQSJHV5L?referrer=appbadge" target="_self" >
+	<img src="https://get.microsoft.com/images/en-us%20light.svg" width="200"/>
+</a>
+
 ## Building from source
 
 ```powershell
